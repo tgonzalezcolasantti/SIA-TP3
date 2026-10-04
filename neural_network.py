@@ -20,15 +20,15 @@ class SimplePerceptron:
         self.learning_rate = learning_rate
 
     def calculate_output(self: Self, inputs: np.ndarray) -> Tuple[float, float]:
-        h = np.dot(inputs, self.weights[1:])
-        return self.activation.excite(h - self.weights[0]), h
+        h = np.dot(inputs, self.weights[1:]) + self.weights[0]
+        return self.activation.excite(h), h
 
     def __update_weights(
         self: Self, inputs: np.ndarray, expected: float, output: float, h: float
     ):
-        delta_b = self.learning_rate * (expected - output) * self.activation.derivative(h)
-        self.weights[0] += delta_b
-        self.weights[1:] += delta_b * inputs
+        delta = self.learning_rate * (expected - output) * self.activation.derivative(h)
+        self.weights[0] += delta
+        self.weights[1:] += delta * inputs
 
     def error(self: Self, error_accumulation: List[Tuple[float, float]]) -> float:
         return sum(
