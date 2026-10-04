@@ -52,6 +52,9 @@ class SimplePerceptron:
 
 class MultiLayerPerceptron:
     def __init__(self: Self, neuron_topology: List[int], activation: Activation, learning_rate: float):
+        if len(neuron_topology) < 2 or any(count <= 0 for count in neuron_topology):
+            raise ValueError("neuron_topology must contain at least two positive layer sizes")
+
         total = sum(neuron_topology)
         self.weights = np.zeros((total, total))
         self.outputs = np.zeros(total)
@@ -61,51 +64,74 @@ class MultiLayerPerceptron:
         self.learning_rate = learning_rate
         self.last_layer_count = neuron_topology[-1]
         self.second_to_last_layer_count = neuron_topology[-2]
+        boundaries = np.cumsum([0, *neuron_topology])
+        self.layer_slices = [
+            slice(boundaries[i], boundaries[i + 1]) for i in range(len(neuron_topology))
+        ]
         self.__init_weights(neuron_topology)
-        print(self.weights)
-        print(self.weights[0])
 
     def __init_weights(self: Self, neuron_topology: List[int]):
-        for i, count in enumerate(neuron_topology):
-            prev = sum(neuron_topology[:i])
-            if prev == 0:
-                # We reserve the first layer 'layer 0' for inputs only
-                # So we can use a very simple dot product to calculate stuff
-                continue
-            for neuron in range(prev, prev+count):
-                self.weights[neuron, neuron] = np.random.rand() # Bias
-                # We end up with a matrix indexed by neuron holding weights for conections
-                # with the previous and next layer
-                for prev_neuron in range(sum(neuron_topology[:i-1]), prev):
-                    rand = np.random.rand()
-                    self.weights[neuron, prev_neuron] = rand
-                    self.weights[prev_neuron, neuron] = rand
+        for layer_idx in range(1, len(neuron_topology)):
+            previous = self.layer_slices[layer_idx - 1]
+            current = self.layer_slices[layer_idx]
+            limit = np.sqrt(6 / (neuron_topology[layer_idx - 1] + neuron_topology[layer_idx]))
+            self.weights[current, previous] = np.random.uniform(
+                -limit, limit, (neuron_topology[layer_idx], neuron_topology[layer_idx - 1])
+            )
 
     def calculate_outputs(self: Self, inputs: np.ndarray) -> np.ndarray:
+        inputs = np.asarray(inputs, dtype=float).reshape(-1)
+        if len(inputs) != self.layer_slices[0].stop:
+            raise ValueError("input size does not match the first layer")
+
         self.outputs[:] = 0
-        self.outputs[0:len(inputs)] = inputs
-        for neuron in range(len(inputs), len(self.weights)):
-            # Doing it step by step like this means all outputs after this neuron are 0
-            # So doing this simple dot product works!
-            self.h[neuron] = np.dot(self.outputs, self.weights[neuron])
-            self.outputs[neuron] = self.activation.excite(self.h[neuron] - self.weights[neuron, neuron])
-        return self.outputs[-self.last_layer_count:]
+        self.outputs[self.layer_slices[0]] = inputs
+        for layer_idx in range(1, len(self.layer_slices)):
+            previous = self.layer_slices[layer_idx - 1]
+            current = self.layer_slices[layer_idx]
+            neurons = np.arange(current.start, current.stop)
+            self.h[current] = (
+                self.weights[current, previous] @ self.outputs[previous]
+                + self.weights[neurons, neurons]
+            )
+            self.outputs[current] = [self.activation.excite(value) for value in self.h[current]]
+        return self.outputs[self.layer_slices[-1]].copy()
 
     def error(self: Self, error_accumulation: np.ndarray) -> float:
         return np.sum((error_accumulation[:,:,0] - error_accumulation[:,:,1])**2) / 2
 
     def __update_weights(self: Self, expected: np.ndarray):
+        expected = np.asarray(expected, dtype=float).reshape(-1)
+        if len(expected) != self.last_layer_count:
+            raise ValueError("expected output size does not match the last layer")
+
         self.deltas[:] = 0
-        for output_idx in range(self.last_layer_count):
-            self.deltas[-output_idx] = expected[-output_idx] * self.activation.derivative(self.h[-output_idx])
-        for neuron in range(0, len(self.deltas) - self.last_layer_count, -1):
-            # Doing it backwards like this means all deltas before this neuron are 0
-            # So these dot products should work!
-            weights_mask = self.weights[neuron] > 0
-            self.weights[neuron] -= self.learning_rate * np.dot(self.deltas[weights_mask], self.outputs)
-            self.weights[:,neuron] = self.weights[neuron]
-            # This is technically calculating #(inputs) extra deltas, but whatever
-            self.deltas[neuron] = np.dot(self.deltas, self.weights[neuron]) * self.activation.derivative(self.h[neuron])
+        output_layer = self.layer_slices[-1]
+        output_derivatives = np.array([
+            self.activation.derivative(value) for value in self.h[output_layer]
+        ])
+        self.deltas[output_layer] = (
+            self.outputs[output_layer] - expected
+        ) * output_derivatives
+
+        for layer_idx in range(len(self.layer_slices) - 2, 0, -1):
+            current = self.layer_slices[layer_idx]
+            following = self.layer_slices[layer_idx + 1]
+            derivatives = np.array([
+                self.activation.derivative(value) for value in self.h[current]
+            ])
+            self.deltas[current] = (
+                self.weights[following, current].T @ self.deltas[following]
+            ) * derivatives
+
+        for layer_idx in range(1, len(self.layer_slices)):
+            previous = self.layer_slices[layer_idx - 1]
+            current = self.layer_slices[layer_idx]
+            neurons = np.arange(current.start, current.stop)
+            self.weights[current, previous] -= self.learning_rate * np.outer(
+                self.deltas[current], self.outputs[previous]
+            )
+            self.weights[neurons, neurons] -= self.learning_rate * self.deltas[current]
 
     def train(
         self: Self,
