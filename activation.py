@@ -17,11 +17,11 @@ class Activation(ABC):
 class Step(Activation):
     @override
     def excite(self: Self, value: float) -> float:
-        return 1 if value >= 0 else 0
+        return 1 if value >= 0 else -1
 
     @override
     def derivative(self: Self, value: float) -> float:
-        return 1
+       return 1
 
 class Adaline(Activation):
     @override
