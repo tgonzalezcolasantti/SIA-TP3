@@ -62,6 +62,8 @@ class MultiLayerPerceptron:
         self.last_layer_count = neuron_topology[-1]
         self.second_to_last_layer_count = neuron_topology[-2]
         self.__init_weights(neuron_topology)
+        print(self.weights)
+        print(self.weights[0])
 
     def __init_weights(self: Self, neuron_topology: List[int]):
         for i, count in enumerate(neuron_topology):
@@ -70,19 +72,21 @@ class MultiLayerPerceptron:
                 # We reserve the first layer 'layer 0' for inputs only
                 # So we can use a very simple dot product to calculate stuff
                 continue
-            for neuron in range(count):
+            for neuron in range(prev, prev+count):
                 self.weights[neuron, neuron] = np.random.rand() # Bias
                 # We end up with a matrix indexed by neuron holding weights for conections
-                # with the previous layer
+                # with the previous and next layer
                 for prev_neuron in range(sum(neuron_topology[:i-1]), prev):
                     rand = np.random.rand()
                     self.weights[neuron, prev_neuron] = rand
                     self.weights[prev_neuron, neuron] = rand
 
-    def calculate_outputs(self: Self, inputs: List[float]) -> np.ndarray:
+    def calculate_outputs(self: Self, inputs: np.ndarray) -> np.ndarray:
         self.outputs[:] = 0
         self.outputs[0:len(inputs)] = inputs
         for neuron in range(len(inputs), len(self.weights)):
+            # Doing it step by step like this means all outputs after this neuron are 0
+            # So doing this simple dot product works!
             self.h[neuron] = np.dot(self.outputs, self.weights[neuron])
             self.outputs[neuron] = self.activation.excite(self.h[neuron] - self.weights[neuron, neuron])
         return self.outputs[-self.last_layer_count:]
@@ -90,13 +94,35 @@ class MultiLayerPerceptron:
     def error(self: Self, error_accumulation: np.ndarray) -> float:
         return np.sum((error_accumulation[:,:,0] - error_accumulation[:,:,1])**2) / 2
 
-    def __update_weights(self: Self, expected: List[float]):
-        #ALGO ESTA MAL, PERO LO REVISO MANANA
+    def __update_weights(self: Self, expected: np.ndarray):
         self.deltas[:] = 0
-        second_to_last_layer_count = self.second_to_last_layer_count
-        for neuron in range(0, len(self.weights) - self.last_layer_count, -1):
-            if second_to_last_layer_count > 0:
-                second_to_last_layer_count -= 1
-                self.deltas[neuron] = 
-            self.deltas[neuron] = sum(self.deltas * self.weights[neuron]) * self.activation.derivative(self.h[neuron])
-            self.weights[neuron] -= self.learning_rate * self.deltas[neuron] * self.outputs
+        for output_idx in range(self.last_layer_count):
+            self.deltas[-output_idx] = expected[-output_idx] * self.activation.derivative(self.h[-output_idx])
+        for neuron in range(0, len(self.deltas) - self.last_layer_count, -1):
+            # Doing it backwards like this means all deltas before this neuron are 0
+            # So these dot products should work!
+            weights_mask = self.weights[neuron] > 0
+            self.weights[neuron] -= self.learning_rate * np.dot(self.deltas[weights_mask], self.outputs)
+            self.weights[:,neuron] = self.weights[neuron]
+            # This is technically calculating #(inputs) extra deltas, but whatever
+            self.deltas[neuron] = np.dot(self.deltas, self.weights[neuron]) * self.activation.derivative(self.h[neuron])
+
+    def train(
+        self: Self,
+        training_data: List[Tuple[np.ndarray, np.ndarray]],
+        epochs: int,
+        epsilon: float,
+    ):
+        for _ in range(epochs):
+            error_accumulation = np.zeros(shape=(len(training_data), self.last_layer_count, 2))
+            for i, data in enumerate(training_data):
+                inputs, expected = data
+                outputs = self.calculate_outputs(inputs)
+                error_accumulation[i, :, 0] = outputs
+                error_accumulation[i, :, 1] = expected
+                self.__update_weights(expected)
+            if self.error(error_accumulation) < epsilon:
+                return
+
+if __name__ == '__main__':
+    MultiLayerPerceptron([3,2,1], None, 0.1)
