@@ -8,8 +8,13 @@
 - `ej2_digitos/`: clasificación de dígitos.
 - `ej3_mejora/`: mejora del clasificador con más datos.
 
-Las carpetas de ejercicios están preparadas para incorporar los datasets y
-experimentos correspondientes.
+Las carpetas de los ejercicios 2 y 3 están preparadas para incorporar sus
+datasets y experimentos.
+
+El [Ejercicio 1](ej1_fraude/README.md) ya incluye la exploración del dataset de
+fraude, la comparación de modelos, el estudio de generalización y el umbral
+recomendado. Con los archivos del enunciado en `data/`, se reproduce con
+`python -m ej1_fraude.run`.
 
 ## Validación de los perceptrones
 
