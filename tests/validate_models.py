@@ -6,8 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
-from activation import Adaline, Step, Tanh
-from neural_network import MultiLayerPerceptron, SimplePerceptron
+from models.activation import Adaline, Step, Tanh
+from models.neural_network import MultiLayerPerceptron, SimplePerceptron
 
 
 def evaluate(model, inputs, targets, classification):

@@ -1,11 +1,22 @@
 # SIA-TP3
 
+## Organización
+
+- `models/`: perceptrones y funciones de activación compartidos.
+- `tests/`: validaciones con problemas simples.
+- `ej1_fraude/`: comparación y generalización para fraude.
+- `ej2_digitos/`: clasificación de dígitos.
+- `ej3_mejora/`: mejora del clasificador con más datos.
+
+Las carpetas de ejercicios están preparadas para incorporar los datasets y
+experimentos correspondientes.
+
 ## Validación de los perceptrones
 
 Desde la raíz del proyecto, ejecutar:
 
 ```powershell
-python validate_models.py
+python -m tests.validate_models
 ```
 
 El programa prueba AND con escalón, el ajuste de `y = x` con activación lineal,

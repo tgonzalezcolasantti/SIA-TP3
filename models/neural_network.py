@@ -2,7 +2,7 @@ from typing import List, Optional, Self, Tuple
 
 import numpy as np
 
-from activation import Activation, Step
+from .activation import Activation, Step
 
 
 class SimplePerceptron:
