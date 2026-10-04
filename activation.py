@@ -21,7 +21,7 @@ class Step(Activation):
 
     @override
     def derivative(self: Self, value: float) -> float:
-       return 1
+        raise NotImplementedError("Step activation has no useful gradient for backpropagation")
 
 class Adaline(Activation):
     @override

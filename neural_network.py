@@ -2,7 +2,7 @@ from typing import List, Optional, Self, Tuple
 
 import numpy as np
 
-from activation import Activation
+from activation import Activation, Step
 
 
 class SimplePerceptron:
@@ -14,8 +14,9 @@ class SimplePerceptron:
         min_weight: float = 0,
         max_weight: float = 1,
     ):
-        self.weights = np.random.rand(inputs + 1)
-        self.weights = (self.weights + min_weight) / (max_weight - min_weight)
+        if min_weight > max_weight:
+            raise ValueError("min_weight must not exceed max_weight")
+        self.weights = min_weight + (max_weight - min_weight) * np.random.rand(inputs + 1)
         self.activation = activation
         self.learning_rate = learning_rate
 
@@ -26,7 +27,10 @@ class SimplePerceptron:
     def __update_weights(
         self: Self, inputs: np.ndarray, expected: float, output: float, h: float
     ):
-        delta = self.learning_rate * (expected - output) * self.activation.derivative(h)
+        delta = self.learning_rate * (expected - output)
+        # The step activation uses the perceptron rule, without a derivative.
+        if not isinstance(self.activation, Step):
+            delta *= self.activation.derivative(h)
         self.weights[0] += delta
         self.weights[1:] += delta * inputs
 
@@ -54,6 +58,8 @@ class MultiLayerPerceptron:
     def __init__(self: Self, neuron_topology: List[int], activation: Activation, learning_rate: float):
         if len(neuron_topology) < 2 or any(count <= 0 for count in neuron_topology):
             raise ValueError("neuron_topology must contain at least two positive layer sizes")
+        if isinstance(activation, Step):
+            raise ValueError("Step activation cannot be used for backpropagation")
 
         total = sum(neuron_topology)
         self.weights = np.zeros((total, total))
