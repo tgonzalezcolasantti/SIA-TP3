@@ -62,13 +62,18 @@ class Perceptron:
     def classify(self: Self, inputs: np.ndarray) -> np.ndarray:
         if inputs.shape[-1] != self.layer_slices[0].stop:
             raise ValueError("input size does not match the first layer")
-        return self._calculate_outputs(inputs).copy()
+        self.outputs = np.zeros(self.weights.shape[0])
+        self.h = np.zeros(self.weights.shape[0])
+        return self._calculate_outputs(inputs).T.copy()
 
     def _calculate_outputs(self: Self, inputs: np.ndarray) -> np.ndarray:
         # inputs = np.asarray(inputs, dtype=float).reshape(-1)
-
-        self.outputs[:] = 0
-        self.outputs[self.layer_slices[0]] = inputs
+        if len(inputs.shape) > 1:
+            self.outputs = np.zeros((self.weights.shape[0], inputs.shape[0]))
+            self.h = np.zeros((self.weights.shape[0], inputs.shape[0]))
+        else:
+            self.outputs[:] = 0
+        self.outputs[self.layer_slices[0]] = inputs.T
         for layer_idx in range(1, len(self.layer_slices)):
             previous = self.layer_slices[layer_idx - 1]
             current = self.layer_slices[layer_idx]

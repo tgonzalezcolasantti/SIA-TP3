@@ -30,7 +30,7 @@ def load_data(dataset_path):
     raw = dataset_path.read_bytes()
 
     reader = csv.DictReader(io.StringIO(raw.decode("utf-8-sig")))
-    feature_names = [name for name in reader.fieldnames if name not in {TARGET, GROUND_TRUTH}]
+    feature_names = [name for name in reader.fieldnames if name not in {TARGET, GROUND_TRUTH}] # type: ignore
     rows = list(reader)
     if not rows:
         raise ValueError("fraud_dataset.csv has no data rows")
@@ -116,7 +116,7 @@ def compare_learning(inputs, teacher, seed):
     for kind in ("linear", "logistic"):
         model = make_model(kind, scaled.shape[1], seed)
         history = train(model, scaled, teacher, EPOCHS, CHECKPOINTS)
-        predictions = np.asarray([float(model.classify(x)[0]) for x in scaled])
+        predictions = model.classify(scaled)
         comparison[kind] = {
             "history": history,
             "final": regression_metrics(predictions, teacher),
@@ -143,8 +143,7 @@ def cross_validate(inputs, teacher, flags, seed):
         inner_model = make_model("logistic", inputs.shape[1], seed + 100 + fold_index)
         train(inner_model, (inputs[inner_train] - inner_means) / inner_stds,
               teacher[inner_train], EPOCHS)
-        calibration_predictions = np.asarray([float(inner_model.classify(x)[0])
-        for x in (inputs[calibration] - inner_means) / inner_stds])
+        calibration_predictions = inner_model.classify((inputs[calibration] - inner_means) / inner_stds).flatten()
         inner_threshold = choose_threshold(calibration_predictions, flags[calibration])["threshold"]
 
         means, stds = fit_scaler(inputs[training])
@@ -152,7 +151,7 @@ def cross_validate(inputs, teacher, flags, seed):
         scaled_test = (inputs[held_out] - means) / stds
         model = make_model("logistic", inputs.shape[1], seed + fold_index)
         train(model, scaled_train, teacher[training], EPOCHS)
-        predictions = np.asarray([model.classify(x)[0] for x in scaled_test])
+        predictions =model.classify(scaled_test).flatten()
         oof[held_out] = predictions
         nested_decisions[held_out] = predictions >= inner_threshold
         folds.append({
@@ -191,6 +190,7 @@ def classification_metrics(probabilities, flags, threshold):
 
 def choose_threshold(probabilities, flags):
     order = np.argsort(-probabilities, kind="stable")
+    print(probabilities, flush=True)
     sorted_probabilities = probabilities[order]
     sorted_flags = flags[order]
     tp = np.cumsum(sorted_flags)
