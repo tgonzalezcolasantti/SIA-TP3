@@ -1,42 +1,63 @@
+from pathlib import Path
 from typing import List, Self, Tuple, override
 
 import numpy as np
 
 from .activation import Activation
 
-class Perceptron():
-    def __init__(self: Self, neuron_topology: List[int], activation: Activation, learning_rate: float):
+
+class Perceptron:
+    def __init__(
+        self: Self,
+        neuron_topology: List[int],
+        activation: Activation,
+        learning_rate: float,
+        save: Path | None = None,
+        epoch: int = 0,
+        weights: np.ndarray | None = None,
+    ):
         if len(neuron_topology) < 2 or any(count <= 0 for count in neuron_topology):
-            raise ValueError("neuron_topology must contain at least two positive layer sizes")
+            raise ValueError(
+                "neuron_topology must contain at least two positive layer sizes"
+            )
 
         total = sum(neuron_topology)
-        self.weights = np.zeros((total, total))
+        self.epoch = epoch
+        self.topology = neuron_topology
+        self.weights = np.zeros((total, total)) if not weights else weights
         self.outputs = np.zeros(total)
         self.h = np.zeros(total)
         self.deltas = np.zeros(total)
         self.activation = activation
         self.learning_rate = learning_rate
         self.last_layer_count = neuron_topology[-1]
+        self.save_path = save
         boundaries = np.cumsum([0, *neuron_topology])
         self.layer_slices = [
             slice(boundaries[i], boundaries[i + 1]) for i in range(len(neuron_topology))
         ]
-        self._init_weights(neuron_topology)
+        if not weights:
+            self._init_weights(neuron_topology)
 
     def _init_weights(self: Self, neuron_topology: List[int]):
         for layer_idx in range(1, len(neuron_topology)):
             previous = self.layer_slices[layer_idx - 1]
             current = self.layer_slices[layer_idx]
             # TODO What is this? aka why this function specifically?
-            limit = np.sqrt(6 / (neuron_topology[layer_idx - 1] + neuron_topology[layer_idx]))
-            self.weights[current, previous] = np.random.uniform(
-                -limit, limit, (neuron_topology[layer_idx], neuron_topology[layer_idx - 1])
+            limit = np.sqrt(
+                6 / (neuron_topology[layer_idx - 1] + neuron_topology[layer_idx])
             )
+            self.weights[current, previous] = np.random.uniform(
+                -limit,
+                limit,
+                (neuron_topology[layer_idx], neuron_topology[layer_idx - 1]),
+            )
+
     def classify(self: Self, inputs: np.ndarray) -> np.ndarray:
         if len(inputs) != self.layer_slices[0].stop:
             raise ValueError("input size does not match the first layer")
         return self._calculate_outputs(inputs).copy()
-    
+
     def _calculate_outputs(self: Self, inputs: np.ndarray) -> np.ndarray:
         inputs = np.asarray(inputs, dtype=float).reshape(-1)
 
@@ -53,8 +74,17 @@ class Perceptron():
             self.outputs[current] = self.activation.excite(self.h[current])
         return self.outputs[self.layer_slices[-1]]
 
-    def _error(self: Self, error_accumulation: np.ndarray) -> float:
-        return np.sum((error_accumulation[:,:,0] - error_accumulation[:,:,1])**2) / 2
+    def _error(self: Self, expected: np.ndarray, output: np.ndarray) -> float:
+        return np.sum((expected - output) ** 2) / 2
+
+    def _global_errors(
+        self: Self, error_accumulation: np.ndarray
+    ) -> Tuple[float, float]:
+        errors = error_accumulation[:, :, 0] - error_accumulation[:, :, 1]
+        mse = np.mean(errors**2)
+        mae = np.mean(np.abs(errors))
+        print(f"MSE: {mse}\tMAE: {mae}")
+        return mse, mae
 
     def _update_weights(self: Self, expected: np.ndarray):
         expected = np.asarray(expected, dtype=float).reshape(-1)
@@ -88,17 +118,48 @@ class Perceptron():
         training_data: List[Tuple[np.ndarray, np.ndarray]],
         epochs: int,
         epsilon: float,
-    ):
-        for _ in range(epochs):
-            error_accumulation = np.zeros(shape=(len(training_data), self.last_layer_count, 2))
+    ) -> List[Tuple[float, float]]:
+        error_history = []
+        for epoch in range(epochs):
+            print(epoch)
+            self.epoch = epoch
+            # Array shaped like (#training samples, #outputs, (output and expected values))
+            results = np.zeros(shape=(len(training_data), self.last_layer_count, 2))
             for i, data in enumerate(training_data):
                 inputs, expected = data
                 outputs = self._calculate_outputs(inputs)
-                error_accumulation[i, :, 0] = outputs
-                error_accumulation[i, :, 1] = expected
+                results[i, :, 0] = outputs
+                results[i, :, 1] = expected
                 self._update_weights(expected)
-            if self._error(error_accumulation) < epsilon:
-                return
+                if self._error(outputs, expected) < epsilon:
+                    return error_history
+            error_history.append(self._global_errors(results))
+            self.save()
+        return error_history
+
+    def save(self: Self):
+        if self.save_path:
+            np.savez_compressed(
+                self.save_path,
+                weights=self.weights,
+                topology=self.topology,
+                learning_rate=self.learning_rate,
+                activation=str(self.activation),
+                epoch=self.epoch,
+            )
+
+    @classmethod
+    def from_file(cls: type[Perceptron], file: Path) -> Perceptron:
+        weights, topology, learning_rate, activation, epoch = np.load(file)
+        return cls(
+            topology,
+            Activation.from_string(activation),
+            learning_rate,
+            file,
+            epoch,
+            weights,
+        )
+
 
 class SimplePerceptron(Perceptron):
     def __init__(
@@ -106,11 +167,12 @@ class SimplePerceptron(Perceptron):
         inputs: int,
         activation: Activation,
         learning_rate: float,
-        weight_range: Tuple[float, float] = (0, 1)
+        save: Path | None = None,
+        weight_range: Tuple[float, float] = (0, 1),
     ):
         self.min_weight = min(weight_range)
         self.max_weight = max(weight_range)
-        super().__init__([inputs, 1], activation, learning_rate)
+        super().__init__([inputs, 1], activation, learning_rate, save)
 
     @override
     def _init_weights(self: Self, neuron_topology: List[int]):
@@ -118,8 +180,11 @@ class SimplePerceptron(Perceptron):
             previous = self.layer_slices[layer_idx - 1]
             current = self.layer_slices[layer_idx]
             self.weights[current, previous] = np.random.uniform(
-                self.min_weight, self.max_weight, (neuron_topology[layer_idx], neuron_topology[layer_idx - 1])
+                self.min_weight,
+                self.max_weight,
+                (neuron_topology[layer_idx], neuron_topology[layer_idx - 1]),
             )
+
 
 class MultiLayerPerceptron(Perceptron):
     pass

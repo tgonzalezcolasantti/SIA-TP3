@@ -5,6 +5,7 @@ from typing import Self, override
 import numpy as np
 
 class Activation(ABC):
+    name: str = ""
     @abstractmethod
     def excite(self: Self, value: float | np.ndarray) -> float | np.ndarray:
         raise NotImplementedError()
@@ -13,8 +14,23 @@ class Activation(ABC):
     def derivative(self: Self, value: float | np.ndarray) -> float | np.ndarray:
         raise NotImplementedError()
 
+    @classmethod
+    def _from_string(cls: type[Activation], string: str):
+        return cls()
+
+    def __str__(self: Self) -> str:
+        return self.name
+
+    @classmethod
+    def from_string(cls: type[Activation], string: str) -> Activation:
+        for subclass in cls.__subclasses__():
+            if subclass.name in string:
+                return subclass._from_string(string)
+        raise ValueError()
+
 
 class Step(Activation):
+    name = "step"
     @override
     def excite(self: Self, value: float | np.ndarray) -> float | np.ndarray:
         return np.heaviside(value, 1) * 2 - 1
@@ -27,6 +43,7 @@ class Step(Activation):
         return np.ones(value.shape) if isinstance(value, np.ndarray) else 1
 
 class Adaline(Activation):
+    name = "adaline"
     @override
     def excite(self: Self, value: float | np.ndarray) -> float | np.ndarray:
         return value
@@ -40,7 +57,17 @@ class BetaActivation(Activation):
         super().__init__()
         self.beta = beta
 
+    def __str__(self: Self) -> str:
+        return " ".join([self.name, str(self.beta)])
+
+    @override
+    @classmethod
+    def _from_string(cls: type[BetaActivation], string: str):
+        beta = float(string.split()[1])
+        return cls(beta)
+
 class Tanh(BetaActivation, Activation):
+    name="tanh"
     @override
     def excite(self: Self, value: float | np.ndarray) -> float | np.ndarray:
         return np.tanh(self.beta * value)
@@ -50,6 +77,7 @@ class Tanh(BetaActivation, Activation):
         return self.beta * (1 - self.excite(value) ** 2)
 
 class Logistic(BetaActivation, Activation):
+    name="logistic"
     @override
     def excite(self: Self, value: float | np.ndarray) -> float | np.ndarray:
         return 1 / (1 + math.exp(-2 * self.beta * value))
