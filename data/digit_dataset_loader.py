@@ -7,10 +7,10 @@ import pandas as pd
 
 def load_dataset(path: str) -> pd.DataFrame:
     """Load a digits CSV and deserialise the image column to numpy arrays."""
+    print("Reading csv")
     df = pd.read_csv(path)
-    df["image"] = df["image"].apply(
-        lambda s: np.array(ast.literal_eval(s), dtype=np.float32)
-    )
+    print("Preformatting")
+    df["image"] = [np.fromstring(string=x[1:-1], dtype=np.float64, sep=',') for x in df["image"]]
     return df
 
 
