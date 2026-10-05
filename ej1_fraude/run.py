@@ -247,7 +247,7 @@ def run(dataset_path, output_dir, seed):
     oof_metrics = regression_metrics(oof, teacher)
 
     means, stds = fit_scaler(inputs)
-    final_model = make_model("logistic", inputs.shape[1], seed, "tiny_model", output_dir)
+    final_model = make_model("logistic", inputs.shape[1], seed / "tiny.model", None, output_dir)
     train(final_model, (inputs - means) / stds, teacher, EPOCHS)
     threshold = threshold_metrics["threshold"]
     np.savez(output_dir / "tiny_model.npz", weights=final_model.weights,

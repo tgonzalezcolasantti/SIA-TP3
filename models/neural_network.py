@@ -182,8 +182,9 @@ class Perceptron:
                 pickle.dump(self, file)
 
     def _suggested_filename(self: Self) -> str:
-        return f"{','.join(str(x) for x in self.topology)} {self.learning_rate:.6g} {str(self.activation)} {str(self.optimization)}"+\
-        f"{' ' + self.model_name if self.model_name else None}.model"
+        return f"{self.model_name + ' ' if self.model_name else None}"+\
+               f"[{','.join(str(x) for x in self.topology)}]"+\
+               f" {self.learning_rate:.6g} {str(self.activation)} {str(self.optimization)}.model"
 
 
 class SimplePerceptron(Perceptron):
