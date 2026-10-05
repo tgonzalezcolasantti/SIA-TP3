@@ -217,7 +217,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-results/validation.json
-results/ej1_fraude/
+results
+results
 data/*.csv
-data/digit_dataset_loader.py

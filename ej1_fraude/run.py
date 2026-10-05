@@ -87,7 +87,7 @@ def fit_scaler(inputs):
 def make_model(kind, features, seed):
     np.random.seed(seed)
     activation = Adaline() if kind == "linear" else Logistic(BETA)
-    return SimplePerceptron(features, LEARNING_RATE, activation, -0.05, 0.05)
+    return SimplePerceptron(features, LEARNING_RATE, activation, (-0.05, 0.05))
 
 
 def predict(model, inputs):
