@@ -77,74 +77,76 @@ class Perceptron:
             )
 
     def classify(self: Self, inputs: np.ndarray) -> np.ndarray:
-        if inputs.shape[-1] != self.layer_slices[0].stop:
-            raise ValueError("input size does not match the first layer")
-        self.outputs = np.zeros(self.weights.shape[0])
-        self.h = np.zeros(self.weights.shape[0])
-        return self._calculate_outputs(inputs).T.copy()
-
-    def _calculate_outputs(self: Self, inputs: np.ndarray) -> np.ndarray:
         # inputs = np.asarray(inputs, dtype=float).reshape(-1)
         if len(inputs.shape) > 1:
             self.outputs = np.zeros((self.weights.shape[0], inputs.shape[0]))
             self.h = np.zeros((self.weights.shape[0], inputs.shape[0]))
         else:
-            self.outputs[:] = 0
+            self.outputs = np.zeros((self.weights.shape[0], 1))
+            self.h = np.zeros((self.weights.shape[0], 1))
+        outputs = self._calculate_outputs(inputs).T.copy()
+        self.outputs = np.zeros((self.weights.shape[0], 1))
+        self.h = np.zeros((self.weights.shape[0], 1))
+        return outputs
+
+    def _calculate_outputs(self: Self, inputs: np.ndarray) -> np.ndarray:
         self.outputs[self.layer_slices[0]] = inputs.T
         for layer_idx in range(1, len(self.layer_slices)):
             previous = self.layer_slices[layer_idx - 1]
             current = self.layer_slices[layer_idx]
-            neurons = np.arange(current.start, current.stop)
             self.h[current] = (
                 self.weights[current, previous] @ self.outputs[previous]
-                + self.weights[neurons, neurons]
+                + self.weights[current, current]
             )
             self.outputs[current] = self.activation.excite(self.h[current])
         return self.outputs[self.layer_slices[-1]]
 
-    def _error(self: Self, expected: np.ndarray, output: np.ndarray) -> float:
-        return np.sum((expected - output) ** 2) / 2
+    def _error(self: Self, output_errors: np.ndarray) -> float:
+        return np.sum(output_errors ** 2) / 2
 
     def _global_errors(
-        self: Self, error_accumulation: np.ndarray
+        self: Self, results: np.ndarray, expected: np.ndarray
     ) -> Tuple[float, float]:
-        errors = error_accumulation[:, :, 0] - error_accumulation[:, :, 1]
+        errors = results - expected
         mse = np.mean(errors**2)
         mae = np.mean(np.abs(errors))
         print(f"MSE: {mse}\tMAE: {mae}")
         return mse, mae
 
-    def _update_weights(self: Self, expected: np.ndarray):
-        expected = np.asarray(expected, dtype=float).reshape(-1)
-
-        self.deltas[:] = 0
+    def _update_weights(self: Self, output_errors: np.ndarray):
         output_layer = self.layer_slices[-1]
         output_derivatives = self.activation.derivative(self.h[output_layer])
-        self.deltas[output_layer] = (
-            self.outputs[output_layer] - expected
-        ) * output_derivatives
+        if self.deltas.shape != (self.weights.shape[0], output_errors.shape[1]):
+            self.deltas = np.zeros((self.weights.shape[0], output_errors.shape[1]))
+        else:
+            self.deltas[:] = 0
+        self.deltas[output_layer] = output_errors * output_derivatives
 
         for layer_idx in range(len(self.layer_slices) - 2, 0, -1):
             current = self.layer_slices[layer_idx]
             following = self.layer_slices[layer_idx + 1]
-            derivatives = self.activation.derivative(self.h[current])
-            self.deltas[current] = (
-                self.weights[following, current].T @ self.deltas[following]
-            ) * derivatives
+            derivatives = self.activation.derivative(self.h[current,:])
+            for i in range(output_errors.shape[1]):
+                self.deltas[current, i] = (
+                    self.weights[following, current].T @ self.deltas[following, i].flatten()
+                ) * derivatives
 
         for layer_idx in range(1, len(self.layer_slices)):
             previous = self.layer_slices[layer_idx - 1]
             current = self.layer_slices[layer_idx]
-            neurons = np.arange(current.start, current.stop)
-            self.weight_deltas[current, previous] = self.optimization.apply(
+            temp_prev = self.weight_deltas.copy()
+            self.weight_deltas[current, previous] = 0
+            for i in range(output_errors.shape[1]):
+                self.weight_deltas[current, previous] += self.optimization.apply(
+                    self.learning_rate,
+                    #Black magic from stackoverflow
+                    np.outer(self.deltas[current, i], self.outputs[previous, i]),
+                    temp_prev[current, previous],
+                )
+            self.weight_deltas[current, current] = self.optimization.apply(
                 self.learning_rate,
-                np.outer(self.deltas[current], self.outputs[previous]),
-                self.weight_deltas[current, previous],
-            )
-            self.weight_deltas[neurons, neurons] = self.optimization.apply(
-                self.learning_rate,
-                self.deltas[current],
-                self.weight_deltas[neurons, neurons],
+                np.mean(self.deltas[current], axis=1),
+                self.weight_deltas[current, current],
             )
         self.weights += self.weight_deltas
 
@@ -153,22 +155,46 @@ class Perceptron:
         training_data: List[Tuple[np.ndarray, np.ndarray]],
         epochs: int,
         epsilon: float,
+        batch_size: int = -1,
+        with_history: bool = False
     ) -> List[Tuple[float, float]]:
+        inputs = np.asarray([x[0] for x in training_data])
+        expected = np.asarray([x[1] for x in training_data])
+        results = None
         for epoch in range(self.epoch, epochs):
             print(epoch)
             self.epoch = epoch + 1
             # Array shaped like (#training samples, #outputs, (output and expected values))
-            results = np.zeros(shape=(len(training_data), self.last_layer_count, 2))
-            for i, data in enumerate(training_data):
-                inputs, expected = data
-                outputs = self._calculate_outputs(inputs)
-                results[i, :, 0] = outputs
-                results[i, :, 1] = expected
-                self._update_weights(expected)
-                if self._error(outputs, expected) < epsilon:
+            results = np.zeros((len(training_data), self.last_layer_count))
+            if batch_size == -1:
+                batch_slices = [slice(0, len(training_data))]
+            else:
+                batch_slices = [
+                    slice(i, max(i + batch_size, len(training_data)-1)) for i in range(0, len(training_data), batch_size)
+                ]
+            for batch_slice in batch_slices:
+                if self.outputs.shape != (self.weights.shape[0], inputs.shape[0]):
+                    self.outputs = np.zeros((self.weights.shape[0], inputs.shape[0]))
+                    self.h = np.zeros((self.weights.shape[0], inputs.shape[0]))
+                outputs = self._calculate_outputs(inputs[batch_slice])
+                results[batch_slice, :] = outputs.T
+                errors = outputs - expected[batch_slice]
+                self._update_weights(errors)
+                if self._error(errors) < epsilon:
                     return self.error_history
-            self.error_history.append(self._global_errors(results))
+            # for i, data in enumerate(training_data):
+                # inputs, expected = data
+                # outputs = self._calculate_outputs(inputs)
+                # results[i, :, 0] = outputs
+                # results[i, :, 1] = expected
+
+                # self._update_weights(expected)
+
+            if with_history:
+                self.error_history.append(self._global_errors(results, expected))
             self.save()
+        if not with_history and results is not None:
+            self.error_history.append(self._global_errors(results, expected)) # type: ignore
         return self.error_history
 
     @classmethod

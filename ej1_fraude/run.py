@@ -103,14 +103,18 @@ def regression_metrics(predictions, targets):
     }
 
 
-def train(model, inputs, teacher, epochs, checkpoints=None):
+def train(model, inputs, teacher, epochs, checkpoints=None, with_history: bool = False):
     training_data = list(zip(inputs, teacher))
     history = []
     # Cutoff on full epochs so that post-update learning curves are comparable.
-    errors = model.train(training_data, epochs=epochs, epsilon=-1)
-    for epoch in range(epochs):
-        if checkpoints is None or epoch in checkpoints:
-            history.append({"epoch": epoch, "mse": errors[epoch][0], "mae": errors[epoch][1]})
+    errors = model.train(training_data, epochs=epochs, epsilon=-1, with_history=with_history)
+    if with_history:
+        for epoch in range(epochs):
+            if checkpoints is None or epoch in checkpoints:
+                try:
+                    history.append({"epoch": epoch, "mse": errors[epoch][0], "mae": errors[epoch][1]})
+                except IndexError:
+                    continue #oops
     return history
 
 
@@ -120,7 +124,7 @@ def compare_learning(inputs, teacher, seed, savedir):
     comparison = {}
     for kind in ("linear", "logistic"):
         model = make_model(kind, scaled.shape[1], seed, "Compare", savedir)
-        history = train(model, scaled, teacher, EPOCHS, CHECKPOINTS)
+        history = train(model, scaled, teacher, EPOCHS, CHECKPOINTS, with_history=True)
         predictions = model.classify(scaled).flatten()
         comparison[kind] = {
             "history": history,
@@ -242,7 +246,7 @@ def run(dataset_path, output_dir, seed):
     print("Comparing linear and logistic learning on all samples...")
     comparison = compare_learning(inputs, teacher, seed, output_dir)
     print("Evaluating logistic generalization with 5 folds...")
-    oof, folds, nested_threshold_metrics = cross_validate(inputs, teacher, flags, seed, output_dir)
+    oof, folds, nested_threshold_metrics = cross_validate(inputs, teacher, flags, seed, None)
     threshold_metrics = choose_threshold(oof, flags)
     oof_metrics = regression_metrics(oof, teacher)
 
@@ -298,4 +302,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import cProfile
+    # cProfile.run('main()')
     main()
