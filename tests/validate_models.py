@@ -1,5 +1,4 @@
 """Run the small validation problems from the TP3 assignment."""
-
 import argparse
 import json
 from pathlib import Path
@@ -11,10 +10,7 @@ from models.neural_network import MultiLayerPerceptron, SimplePerceptron
 
 
 def evaluate(model, inputs, targets, classification):
-    if isinstance(model, SimplePerceptron):
-        predictions = np.array([model.calculate_output(x)[0] for x in inputs])
-    else:
-        predictions = np.array([model.calculate_outputs(x)[0] for x in inputs])
+    predictions = np.array([model.classify(x)[0] for x in inputs])
 
     metrics = {"mse": float(np.mean((predictions - targets) ** 2))}
     if classification:
@@ -67,21 +63,21 @@ def run_validation(seed):
 
     np.random.seed(seed)
     cases["and"] = run_case(
-        "and", SimplePerceptron(2, 0.1, Step(), -1, 1), logic_inputs,
+        "and", SimplePerceptron(2, Step(), 0.1, (-1, 1)), logic_inputs,
         np.array([-1, -1, -1, 1], dtype=float), 100, 1, 0.0,
     )
     cases["and"]["model"] = {"activation": "step", "learning_rate": 0.1}
 
     np.random.seed(seed)
     cases["linear"] = run_case(
-        "linear", SimplePerceptron(1, 0.05, Adaline(), -1, 1), line_inputs,
+        "linear", SimplePerceptron(1, Adaline(), 0.05, (-1, 1)), line_inputs,
         line_inputs[:, 0].copy(), 100, 1, 1e-4,
     )
     cases["linear"]["model"] = {"activation": "linear", "learning_rate": 0.05}
 
     np.random.seed(seed)
     cases["nonlinear"] = run_case(
-        "nonlinear", SimplePerceptron(1, 0.05, Tanh(), -1, 1), line_inputs,
+        "nonlinear", SimplePerceptron(1, Tanh(), 0.05, (-1, 1)), line_inputs,
         np.tanh(line_inputs[:, 0]), 100, 1, 1e-4,
     )
     cases["nonlinear"]["model"] = {
@@ -117,7 +113,7 @@ def main():
         accuracy = f", accuracy={metrics['accuracy']:.0%}" if "accuracy" in metrics else ""
         status = "OK" if case["passed"] else "FAIL"
         print(f"{name}: {status} (epochs={case['epochs_run']}, mse={metrics['mse']:.6f}{accuracy})")
-    print(f"Results: {args.output}")
+    print(f"Results: {args.output}", flush=True)
     return 0 if result["passed"] else 1
 
 
