@@ -43,14 +43,14 @@ def run_case(name, model, inputs, targets, max_epochs, check_every, mse_limit):
             break
 
     return {
-        "passed": passed,
-        "epochs_run": epoch,
+        "passed": passed, # type: ignore
+        "epochs_run": epoch, # type: ignore
         "max_epochs": max_epochs,
         "mse_limit": mse_limit,
         "inputs": inputs.tolist(),
         "targets": targets.tolist(),
-        "predictions": predictions.tolist(),
-        "metrics": metrics,
+        "predictions": predictions.tolist(), # type: ignore
+        "metrics": metrics, # type: ignore
         "history": history,
         "weights": model.weights.tolist(),
     }

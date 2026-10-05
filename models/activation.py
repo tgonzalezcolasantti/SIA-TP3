@@ -14,20 +14,8 @@ class Activation(ABC):
     def derivative(self: Self, value: float | np.ndarray) -> float | np.ndarray:
         raise NotImplementedError()
 
-    @classmethod
-    def _from_string(cls: type[Activation], string: str):
-        return cls()
-
     def __str__(self: Self) -> str:
         return self.name
-
-    @classmethod
-    def from_string(cls: type[Activation], string: str) -> Activation:
-        for subclass in cls.__subclasses__():
-            if subclass.name in string:
-                return subclass._from_string(string)
-        raise ValueError()
-
 
 class Step(Activation):
     name = "step"
@@ -56,15 +44,8 @@ class BetaActivation(Activation):
     def __init__(self: Self, beta: float = 1):
         super().__init__()
         self.beta = beta
-
     def __str__(self: Self) -> str:
-        return " ".join([self.name, str(self.beta)])
-
-    @override
-    @classmethod
-    def _from_string(cls: type[BetaActivation], string: str):
-        beta = float(string.split()[1])
-        return cls(beta)
+        return f"{self.name}({self.beta:.6g})"
 
 class Tanh(BetaActivation, Activation):
     name="tanh"

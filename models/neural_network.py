@@ -1,5 +1,6 @@
 from pathlib import Path
-from typing import List, Self, Tuple, override
+import pickle
+from typing import List, Optional, Self, Tuple, override
 
 import numpy as np
 
@@ -17,33 +18,49 @@ class Perceptron:
         save: Path | None = None,
         epoch: int = 0,
         weights: np.ndarray | None = None,
-        optimization: Optimization = NoOptimization()
+        optimization: Optimization = NoOptimization(),
+        model_name: Optional[str] = None,
     ):
-        if len(neuron_topology) < 2 or any(count <= 0 for count in neuron_topology):
-            raise ValueError(
-                "neuron_topology must contain at least two positive layer sizes"
-            )
+        self.model_name = model_name
+        self.topology = neuron_topology
+        self.learning_rate = learning_rate
+        self.activation = activation
+        self.optimization = optimization
+        self.epoch = epoch
+        self.error_history = []
+
+        if save:
+            if save.is_dir():
+                save = save / self._suggested_filename()
+            if save.exists():
+                unpickled: Perceptron = self.load(save)
+                self.weights = unpickled.weights
+                self.topology = unpickled.topology
+                self.activation = unpickled.activation
+                self.optimization = unpickled.optimization
+                self.epoch = unpickled.epoch
+                self.learning_rate = unpickled.learning_rate
+                self.error_history = unpickled.error_history
+        else:
+            if len(neuron_topology) < 2 or any(count <= 0 for count in neuron_topology):
+                raise ValueError(
+                    "neuron_topology must contain at least two positive layer sizes"
+                )
 
         total = sum(neuron_topology)
-        self.epoch = epoch
-        self.topology = neuron_topology
         self.weights = np.zeros((total, total)) if not weights else weights
         self.outputs = np.zeros(total)
         self.h = np.zeros(total)
         self.deltas = np.zeros(total)
         self.weight_deltas = np.zeros((total, total))
-        self.activation = activation
-        self.learning_rate = learning_rate
         self.last_layer_count = neuron_topology[-1]
         self.save_path = save
-        self.optimization = optimization
         boundaries = np.cumsum([0, *neuron_topology])
         self.layer_slices = [
             slice(boundaries[i], boundaries[i + 1]) for i in range(len(neuron_topology))
         ]
         if not weights:
             self._init_weights(neuron_topology)
-
 
     def _init_weights(self: Self, neuron_topology: List[int]):
         for layer_idx in range(1, len(neuron_topology)):
@@ -122,12 +139,12 @@ class Perceptron:
             self.weight_deltas[current, previous] = self.optimization.apply(
                 self.learning_rate,
                 np.outer(self.deltas[current], self.outputs[previous]),
-                self.weight_deltas[current, previous]
+                self.weight_deltas[current, previous],
             )
             self.weight_deltas[neurons, neurons] = self.optimization.apply(
                 self.learning_rate,
                 self.deltas[current],
-                self.weight_deltas[neurons, neurons]
+                self.weight_deltas[neurons, neurons],
             )
         self.weights += self.weight_deltas
 
@@ -137,7 +154,6 @@ class Perceptron:
         epochs: int,
         epsilon: float,
     ) -> List[Tuple[float, float]]:
-        error_history = []
         for epoch in range(self.epoch, epochs):
             print(epoch)
             self.epoch = epoch + 1
@@ -150,33 +166,24 @@ class Perceptron:
                 results[i, :, 1] = expected
                 self._update_weights(expected)
                 if self._error(outputs, expected) < epsilon:
-                    return error_history
-            error_history.append(self._global_errors(results))
+                    return self.error_history
+            self.error_history.append(self._global_errors(results))
             self.save()
-        return error_history
+        return self.error_history
+
+    @classmethod
+    def load(cls:type[Perceptron], save_path: Path):
+        with open(save_path, 'rb+') as file:
+            return pickle.load(file)
 
     def save(self: Self):
         if self.save_path:
-            np.savez_compressed(
-                self.save_path,
-                weights=self.weights,
-                topology=self.topology,
-                learning_rate=self.learning_rate,
-                activation=str(self.activation),
-                epoch=self.epoch,
-            )
+            with open(self.save_path, '+wb') as file:
+                pickle.dump(self, file)
 
-    @classmethod
-    def from_file(cls: type[Perceptron], file: Path) -> Perceptron:
-        weights, topology, learning_rate, activation, epoch = np.load(file)
-        return cls(
-            topology,
-            Activation.from_string(activation),
-            learning_rate,
-            file,
-            epoch,
-            weights,
-        )
+    def _suggested_filename(self: Self) -> str:
+        return f"{','.join(str(x) for x in self.topology)} {self.learning_rate:.6g} {str(self.activation)} {str(self.optimization)}"+\
+        f"{' ' + self.model_name if self.model_name else None}.model"
 
 
 class SimplePerceptron(Perceptron):
@@ -185,12 +192,21 @@ class SimplePerceptron(Perceptron):
         inputs: int,
         activation: Activation,
         learning_rate: float,
-        save: Path | None = None,
         weight_range: Tuple[float, float] = (0, 1),
+        epoch: int = 0,
+        save: Optional[Path] = None,
+        model_name: Optional[str] = None
     ):
         self.min_weight = min(weight_range)
         self.max_weight = max(weight_range)
-        super().__init__([inputs, 1], activation, learning_rate, save)
+        super().__init__(
+            neuron_topology=[inputs, 1],
+            activation=activation,
+            learning_rate=learning_rate,
+            save=save,
+            model_name=model_name,
+            epoch=epoch
+        )
 
     @override
     def _init_weights(self: Self, neuron_topology: List[int]):

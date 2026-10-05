@@ -10,7 +10,7 @@ def load_dataset(path: str) -> pd.DataFrame:
     print("Reading csv")
     df = pd.read_csv(path)
     print("Preformatting")
-    df["image"] = [np.fromstring(string=x[1:-1], dtype=np.float64, sep=',') for x in df["image"]]
+    df["image"] = [np.fromstring(string=x[1:-1], dtype=np.float64, sep=',') for x in df["image"]] # type: ignore
     return df
 
 

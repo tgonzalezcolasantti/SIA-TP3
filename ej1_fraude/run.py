@@ -2,7 +2,6 @@
 
 import argparse
 import csv
-import hashlib
 import io
 import json
 from pathlib import Path
@@ -44,10 +43,10 @@ def load_data(dataset_path):
         raise ValueError("fraud_dataset.csv contains non-finite values")
     if np.any((teacher < 0) | (teacher > 1)) or not set(flags).issubset({0, 1}):
         raise ValueError("target columns contain values outside their documented ranges")
-    return inputs, teacher, flags, feature_names, hashlib.sha256(raw).hexdigest()
+    return inputs, teacher, flags, feature_names
 
 
-def describe_data(inputs, teacher, flags, feature_names, data_hash):
+def describe_data(inputs, teacher, flags, feature_names):
     columns = {}
     for index, name in enumerate(feature_names):
         values = inputs[:, index]
@@ -73,7 +72,6 @@ def describe_data(inputs, teacher, flags, feature_names, data_hash):
             "max": float(teacher.max()),
         },
         "columns": columns,
-        "csv_sha256": data_hash,
     }
 
 
@@ -84,10 +82,17 @@ def fit_scaler(inputs):
     return means, stds
 
 
-def make_model(kind, features, seed):
+def make_model(kind, features, seed, name, savedir):
     np.random.seed(seed)
     activation = Adaline() if kind == "linear" else Logistic(BETA)
-    return SimplePerceptron(features, activation, LEARNING_RATE, None, (-0.05, 0.05))
+    return SimplePerceptron(
+        inputs=features,
+        activation=activation,
+        learning_rate=LEARNING_RATE,
+        save=savedir, 
+        model_name=name,
+        weight_range=(-0.05, 0.05)
+    )
 
 
 def regression_metrics(predictions, targets):
@@ -109,12 +114,12 @@ def train(model, inputs, teacher, epochs, checkpoints=None):
     return history
 
 
-def compare_learning(inputs, teacher, seed):
+def compare_learning(inputs, teacher, seed, savedir):
     means, stds = fit_scaler(inputs)
     scaled = (inputs - means) / stds
     comparison = {}
     for kind in ("linear", "logistic"):
-        model = make_model(kind, scaled.shape[1], seed)
+        model = make_model(kind, scaled.shape[1], seed, "Compare", savedir)
         history = train(model, scaled, teacher, EPOCHS, CHECKPOINTS)
         predictions = model.classify(scaled)
         comparison[kind] = {
@@ -127,7 +132,7 @@ def compare_learning(inputs, teacher, seed):
     return comparison
 
 
-def cross_validate(inputs, teacher, flags, seed):
+def cross_validate(inputs, teacher, flags, seed, savedir):
     rng = np.random.default_rng(seed)
     parts = np.array_split(rng.permutation(len(inputs)), FOLDS)
     oof = np.empty(len(inputs))
@@ -140,7 +145,7 @@ def cross_validate(inputs, teacher, flags, seed):
         inner = np.random.default_rng(seed + 100 + fold_index).permutation(training)
         inner_train, calibration = np.split(inner, [int(0.8 * len(inner))])
         inner_means, inner_stds = fit_scaler(inputs[inner_train])
-        inner_model = make_model("logistic", inputs.shape[1], seed + 100 + fold_index)
+        inner_model = make_model("logistic", inputs.shape[1], seed + 100 + fold_index, f"Crossval_{fold_index}", savedir)
         train(inner_model, (inputs[inner_train] - inner_means) / inner_stds,
               teacher[inner_train], EPOCHS)
         calibration_predictions = inner_model.classify((inputs[calibration] - inner_means) / inner_stds).flatten()
@@ -149,7 +154,7 @@ def cross_validate(inputs, teacher, flags, seed):
         means, stds = fit_scaler(inputs[training])
         scaled_train = (inputs[training] - means) / stds
         scaled_test = (inputs[held_out] - means) / stds
-        model = make_model("logistic", inputs.shape[1], seed + fold_index)
+        model = make_model("logistic", inputs.shape[1], seed + fold_index, "Crossval_final", savedir)
         train(model, scaled_train, teacher[training], EPOCHS)
         predictions =model.classify(scaled_test).flatten()
         oof[held_out] = predictions
@@ -230,19 +235,19 @@ def save_plots(comparison, teacher, oof, flags, threshold, output_dir):
 
 
 def run(dataset_path, output_dir, seed):
-    inputs, teacher, flags, feature_names, data_hash = load_data(dataset_path)
+    inputs, teacher, flags, feature_names = load_data(dataset_path)
     output_dir.mkdir(parents=True, exist_ok=True)
-    profile = describe_data(inputs, teacher, flags, feature_names, data_hash)
+    profile = describe_data(inputs, teacher, flags, feature_names)
 
     print("Comparing linear and logistic learning on all samples...")
-    comparison = compare_learning(inputs, teacher, seed)
+    comparison = compare_learning(inputs, teacher, seed, output_dir)
     print("Evaluating logistic generalization with 5 folds...")
-    oof, folds, nested_threshold_metrics = cross_validate(inputs, teacher, flags, seed)
+    oof, folds, nested_threshold_metrics = cross_validate(inputs, teacher, flags, seed, output_dir)
     threshold_metrics = choose_threshold(oof, flags)
     oof_metrics = regression_metrics(oof, teacher)
 
     means, stds = fit_scaler(inputs)
-    final_model = make_model("logistic", inputs.shape[1], seed)
+    final_model = make_model("logistic", inputs.shape[1], seed, "tiny_model", output_dir)
     train(final_model, (inputs - means) / stds, teacher, EPOCHS)
     threshold = threshold_metrics["threshold"]
     np.savez(output_dir / "tiny_model.npz", weights=final_model.weights,
