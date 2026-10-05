@@ -34,8 +34,8 @@ class Perceptron:
                 save = save / self._suggested_filename()
             if save.exists():
                 unpickled: Perceptron = self.load(save)
-                self.weights = unpickled.weights
-                self.topology = unpickled.topology
+                weights = unpickled.weights
+                neuron_topology = unpickled.topology
                 self.activation = unpickled.activation
                 self.optimization = unpickled.optimization
                 self.epoch = unpickled.epoch
@@ -48,7 +48,7 @@ class Perceptron:
                 )
 
         total = sum(neuron_topology)
-        self.weights = np.zeros((total, total)) if not weights else weights
+        self.weights = np.zeros((total, total)) if weights is None else weights
         self.outputs = np.zeros(total)
         self.h = np.zeros(total)
         self.deltas = np.zeros(total)
@@ -59,7 +59,7 @@ class Perceptron:
         self.layer_slices = [
             slice(boundaries[i], boundaries[i + 1]) for i in range(len(neuron_topology))
         ]
-        if not weights:
+        if weights is None:
             self._init_weights(neuron_topology)
 
     def _init_weights(self: Self, neuron_topology: List[int]):
