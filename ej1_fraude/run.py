@@ -121,7 +121,7 @@ def compare_learning(inputs, teacher, seed, savedir):
     for kind in ("linear", "logistic"):
         model = make_model(kind, scaled.shape[1], seed, "Compare", savedir)
         history = train(model, scaled, teacher, EPOCHS, CHECKPOINTS)
-        predictions = model.classify(scaled)
+        predictions = model.classify(scaled).flatten()
         comparison[kind] = {
             "history": history,
             "final": regression_metrics(predictions, teacher),
@@ -247,7 +247,7 @@ def run(dataset_path, output_dir, seed):
     oof_metrics = regression_metrics(oof, teacher)
 
     means, stds = fit_scaler(inputs)
-    final_model = make_model("logistic", inputs.shape[1], seed / "tiny.model", None, output_dir)
+    final_model = make_model("logistic", inputs.shape[1], seed, None, output_dir / "tiny.model")
     train(final_model, (inputs - means) / stds, teacher, EPOCHS)
     threshold = threshold_metrics["threshold"]
     np.savez(output_dir / "tiny_model.npz", weights=final_model.weights,
