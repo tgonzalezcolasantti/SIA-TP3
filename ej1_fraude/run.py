@@ -87,14 +87,7 @@ def fit_scaler(inputs):
 def make_model(kind, features, seed):
     np.random.seed(seed)
     activation = Adaline() if kind == "linear" else Logistic(BETA)
-    return SimplePerceptron(features, LEARNING_RATE, activation, (-0.05, 0.05))
-
-
-def predict(model, inputs):
-    z = inputs @ model.weights[1:] + model.weights[0]
-    if isinstance(model.activation, Adaline):
-        return z
-    return 1 / (1 + np.exp(np.clip(-2 * BETA * z, -700, 700)))
+    return SimplePerceptron(features, activation, LEARNING_RATE, None, (-0.05, 0.05))
 
 
 def regression_metrics(predictions, targets):
@@ -108,12 +101,11 @@ def regression_metrics(predictions, targets):
 def train(model, inputs, teacher, epochs, checkpoints=None):
     training_data = list(zip(inputs, teacher))
     history = []
-    for epoch in range(epochs + 1):
-        if epoch:
-            # Train exactly one epoch so that post-update learning curves are comparable.
-            model.train(training_data, epochs=1, epsilon=-1)
+    # Cutoff on full epochs so that post-update learning curves are comparable.
+    errors = model.train(training_data, epochs=epochs, epsilon=-1)
+    for epoch in range(epochs):
         if checkpoints is None or epoch in checkpoints:
-            history.append({"epoch": epoch, **regression_metrics(predict(model, inputs), teacher)})
+            history.append({"epoch": epoch, "mse": errors[epoch][0], "mae": errors[epoch][1]})
     return history
 
 
@@ -124,7 +116,7 @@ def compare_learning(inputs, teacher, seed):
     for kind in ("linear", "logistic"):
         model = make_model(kind, scaled.shape[1], seed)
         history = train(model, scaled, teacher, EPOCHS, CHECKPOINTS)
-        predictions = predict(model, scaled)
+        predictions = np.asarray([float(model.classify(x)[0]) for x in scaled])
         comparison[kind] = {
             "history": history,
             "final": regression_metrics(predictions, teacher),
@@ -151,9 +143,8 @@ def cross_validate(inputs, teacher, flags, seed):
         inner_model = make_model("logistic", inputs.shape[1], seed + 100 + fold_index)
         train(inner_model, (inputs[inner_train] - inner_means) / inner_stds,
               teacher[inner_train], EPOCHS)
-        calibration_predictions = predict(
-            inner_model, (inputs[calibration] - inner_means) / inner_stds
-        )
+        calibration_predictions = np.asarray([float(inner_model.classify(x)[0])
+        for x in (inputs[calibration] - inner_means) / inner_stds])
         inner_threshold = choose_threshold(calibration_predictions, flags[calibration])["threshold"]
 
         means, stds = fit_scaler(inputs[training])
@@ -161,7 +152,7 @@ def cross_validate(inputs, teacher, flags, seed):
         scaled_test = (inputs[held_out] - means) / stds
         model = make_model("logistic", inputs.shape[1], seed + fold_index)
         train(model, scaled_train, teacher[training], EPOCHS)
-        predictions = predict(model, scaled_test)
+        predictions = np.asarray([model.classify(x)[0] for x in scaled_test])
         oof[held_out] = predictions
         nested_decisions[held_out] = predictions >= inner_threshold
         folds.append({
