@@ -39,6 +39,7 @@ class Perceptron:
         if not weights:
             self._init_weights(neuron_topology)
 
+
     def _init_weights(self: Self, neuron_topology: List[int]):
         for layer_idx in range(1, len(neuron_topology)):
             previous = self.layer_slices[layer_idx - 1]
@@ -120,9 +121,9 @@ class Perceptron:
         epsilon: float,
     ) -> List[Tuple[float, float]]:
         error_history = []
-        for epoch in range(epochs):
+        for epoch in range(self.epoch, epochs):
             print(epoch)
-            self.epoch = epoch
+            self.epoch = epoch + 1
             # Array shaped like (#training samples, #outputs, (output and expected values))
             results = np.zeros(shape=(len(training_data), self.last_layer_count, 2))
             for i, data in enumerate(training_data):

@@ -80,7 +80,7 @@ class Logistic(BetaActivation, Activation):
     name="logistic"
     @override
     def excite(self: Self, value: float | np.ndarray) -> float | np.ndarray:
-        return 1 / (1 + math.exp(-2 * self.beta * value))
+        return 1 / (1 + np.exp(-2 * self.beta * value))
 
     @override
     def derivative(self: Self, value: float | np.ndarray) -> float | np.ndarray:
