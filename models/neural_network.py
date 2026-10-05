@@ -3,6 +3,8 @@ from typing import List, Self, Tuple, override
 
 import numpy as np
 
+from models.optimization import NoOptimization, Optimization
+
 from .activation import Activation
 
 
@@ -15,6 +17,7 @@ class Perceptron:
         save: Path | None = None,
         epoch: int = 0,
         weights: np.ndarray | None = None,
+        optimization: Optimization = NoOptimization()
     ):
         if len(neuron_topology) < 2 or any(count <= 0 for count in neuron_topology):
             raise ValueError(
@@ -28,10 +31,12 @@ class Perceptron:
         self.outputs = np.zeros(total)
         self.h = np.zeros(total)
         self.deltas = np.zeros(total)
+        self.weight_deltas = np.zeros((total, total))
         self.activation = activation
         self.learning_rate = learning_rate
         self.last_layer_count = neuron_topology[-1]
         self.save_path = save
+        self.optimization = optimization
         boundaries = np.cumsum([0, *neuron_topology])
         self.layer_slices = [
             slice(boundaries[i], boundaries[i + 1]) for i in range(len(neuron_topology))
@@ -55,12 +60,12 @@ class Perceptron:
             )
 
     def classify(self: Self, inputs: np.ndarray) -> np.ndarray:
-        if len(inputs) != self.layer_slices[0].stop:
+        if inputs.shape[-1] != self.layer_slices[0].stop:
             raise ValueError("input size does not match the first layer")
         return self._calculate_outputs(inputs).copy()
 
     def _calculate_outputs(self: Self, inputs: np.ndarray) -> np.ndarray:
-        inputs = np.asarray(inputs, dtype=float).reshape(-1)
+        # inputs = np.asarray(inputs, dtype=float).reshape(-1)
 
         self.outputs[:] = 0
         self.outputs[self.layer_slices[0]] = inputs
@@ -109,10 +114,17 @@ class Perceptron:
             previous = self.layer_slices[layer_idx - 1]
             current = self.layer_slices[layer_idx]
             neurons = np.arange(current.start, current.stop)
-            self.weights[current, previous] -= self.learning_rate * np.outer(
-                self.deltas[current], self.outputs[previous]
+            self.weight_deltas[current, previous] = self.optimization.apply(
+                self.learning_rate,
+                np.outer(self.deltas[current], self.outputs[previous]),
+                self.weight_deltas[current, previous]
             )
-            self.weights[neurons, neurons] -= self.learning_rate * self.deltas[current]
+            self.weight_deltas[neurons, neurons] = self.optimization.apply(
+                self.learning_rate,
+                self.deltas[current],
+                self.weight_deltas[neurons, neurons]
+            )
+        self.weights += self.weight_deltas
 
     def train(
         self: Self,
