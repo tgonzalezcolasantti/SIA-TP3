@@ -64,24 +64,48 @@ def make_model(topology, learning_rate, optimizer_name, seed):
     )
 
 
-def evaluate(model, images, labels):
-    outputs = model.classify(images)
-    predictions = outputs.argmax(axis=1)
-    return {
-        "accuracy": float(np.mean(predictions == labels)),
-        "mse": float(np.mean((outputs - targets(labels)) ** 2)),
+def evaluate(model, images, labels, tracked_digits=(), chunk_size=2048):
+    correct, squared_error, output_count = 0, 0.0, 0
+    digit_hits = {digit: 0 for digit in tracked_digits}
+    digit_counts = {digit: int(np.count_nonzero(labels == digit)) for digit in tracked_digits}
+    for start in range(0, len(labels), chunk_size):
+        end = start + chunk_size
+        outputs = model.classify(images[start:end])
+        predictions = outputs.argmax(axis=1)
+        batch_labels = labels[start:end]
+        correct += int(np.count_nonzero(predictions == batch_labels))
+        squared_error += float(np.sum((outputs - targets(batch_labels)) ** 2))
+        output_count += outputs.size
+        for digit in tracked_digits:
+            digit_hits[digit] += int(np.count_nonzero(
+                (predictions == digit) & (batch_labels == digit)
+            ))
+    metrics = {
+        "accuracy": correct / len(labels),
+        "mse": squared_error / output_count,
     }
+    for digit in tracked_digits:
+        metrics[f"recall_{digit}"] = (
+            digit_hits[digit] / digit_counts[digit] if digit_counts[digit] else None
+        )
+    return metrics
+
+
+def fit_model(training_data, topology, learning_rate, optimizer_name,
+              batch_size, epochs, seed):
+    model = make_model(topology, learning_rate, optimizer_name, seed)
+    started = time.perf_counter()
+    model.train(training_data, epochs=epochs, epsilon=-1,
+                batch_size=batch_size, seed=seed)
+    return model, time.perf_counter() - started
 
 
 def run_configuration(training_data, training_images, training_labels,
                       validation_images, validation_labels,
                       topology, learning_rate, optimizer_name, batch_size,
                       epochs, seed, mode):
-    model = make_model(topology, learning_rate, optimizer_name, seed)
-    started = time.perf_counter()
-    model.train(training_data, epochs=epochs, epsilon=-1,
-                batch_size=batch_size, seed=seed)
-    seconds = time.perf_counter() - started
+    model, seconds = fit_model(training_data, topology, learning_rate,
+                               optimizer_name, batch_size, epochs, seed)
     train_metrics = evaluate(model, training_images, training_labels)
     metrics = evaluate(model, validation_images, validation_labels)
     result = {
@@ -184,11 +208,10 @@ def run(train_path, test_path, output_dir, seed, epochs, mini_batch_size,
     experiments = search + mode_comparison[1:]
 
     # Refit the selected configuration on every example from digits.csv.
-    final_model = make_model(selected["topology"], selected["learning_rate"],
-                             selected["optimizer"], seed)
     final_data = list(zip(images, targets(labels)))
-    final_model.train(final_data, epochs=epochs, epsilon=-1,
-                      batch_size=selected["batch_size"], seed=seed)
+    final_model, _ = fit_model(final_data, selected["topology"],
+                               selected["learning_rate"], selected["optimizer"],
+                               selected["batch_size"], epochs, seed)
     model_path = output_dir / "digit_model.model"
     final_model.save_path = model_path
     final_model.save()

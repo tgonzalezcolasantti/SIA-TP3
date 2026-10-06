@@ -4,7 +4,6 @@ import argparse
 import csv
 import json
 import os
-import time
 from pathlib import Path
 
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
@@ -13,8 +12,8 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 import numpy as np
 import pandas as pd
 
-from ej2_digitos.run import (classification_report, make_model, read_digits,
-                            stratified_split, targets)
+from ej2_digitos.run import (classification_report, evaluate, fit_model,
+                            read_digits, stratified_split, targets)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -97,29 +96,6 @@ def make_training_data(images, labels, indices, shifts_per_image, seed):
     return list(zip(selected_images, targets(selected_labels)))
 
 
-def evaluate(model, images, labels, chunk_size=2048):
-    correct = 0
-    squared_error = 0.0
-    count = 0
-    predicted = []
-    for start in range(0, len(labels), chunk_size):
-        end = start + chunk_size
-        output = model.classify(images[start:end])
-        expected = targets(labels[start:end])
-        guesses = output.argmax(axis=1)
-        predicted.append(guesses)
-        correct += int(np.sum(guesses == labels[start:end]))
-        squared_error += float(np.sum((output - expected) ** 2))
-        count += output.size
-    guesses = np.concatenate(predicted)
-    return {
-        "accuracy": correct / len(labels),
-        "mse": squared_error / count,
-        "recall_5": float(np.mean(guesses[labels == 5] == 5)) if np.any(labels == 5) else None,
-        "recall_8": float(np.mean(guesses[labels == 8] == 8)) if np.any(labels == 8) else None,
-    }
-
-
 def configurations(epochs, batch_size, balance_count):
     return [
         {"source": "new", "topology": [784, 128, 64, 10], "learning_rate": 0.01,
@@ -145,17 +121,15 @@ def fit_candidate(config, pool, images, labels, validation, seed):
     train_indices = training_indices(pool, labels, config["balance_count"], seed)
     training_data = make_training_data(images, labels, train_indices,
                                        config["shifts_per_image"], seed)
-    model = make_model(config["topology"], config["learning_rate"], "momentum", seed)
-    started = time.perf_counter()
-    model.train(training_data, epochs=config["epochs"], epsilon=-1,
-                batch_size=config["batch_size"], seed=seed)
-    seconds = time.perf_counter() - started
+    model, seconds = fit_model(training_data, config["topology"],
+                               config["learning_rate"], "momentum",
+                               config["batch_size"], config["epochs"], seed)
     result = {
         **config, "optimizer": "momentum", "train_unique_count": len(pool),
         "train_draw_count": len(train_indices),
         "train_augmented_count": len(training_data), "train_seconds": seconds,
-        "training": evaluate(model, images[pool], labels[pool]),
-        "validation": evaluate(model, images[validation], labels[validation]),
+        "training": evaluate(model, images[pool], labels[pool], (5, 8)),
+        "validation": evaluate(model, images[validation], labels[validation], (5, 8)),
     }
     print(f"{config['source']:8} {config['topology']} lr={config['learning_rate']} "
           f"balance={config['balance_count']} shifts={config['shifts_per_image']}: validation="
@@ -259,10 +233,9 @@ def run(old_path, new_path, test_path, output_dir, seed=2, epochs=40,
     final_indices = training_indices(final_pool, labels, selected["balance_count"], seed)
     final_data = make_training_data(images, labels, final_indices,
                                     selected["shifts_per_image"], seed)
-    final_model = make_model(selected["topology"], selected["learning_rate"],
-                             "momentum", seed)
-    final_model.train(final_data, epochs=selected["epochs"], epsilon=-1,
-                      batch_size=selected["batch_size"], seed=seed)
+    final_model, _ = fit_model(final_data, selected["topology"],
+                               selected["learning_rate"], "momentum",
+                               selected["batch_size"], selected["epochs"], seed)
     model_path = output_dir / "digit_model.model"
     final_model.save_path = model_path
     final_model.save()
