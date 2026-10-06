@@ -14,12 +14,12 @@ from typing import Any, Dict, List
 from rich.live import Live
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TaskID, TaskProgressColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.table import Table
+# Small matrix products are usually faster with one BLAS worker per process.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 from ej2_digitos.train_model import fit_model, targets
 from ej2_digitos.utils import ARCHITECTURES, LEARNING_RATES, OPTIMIZERS, ROOT, classification_report, read_digits
 
-# Small matrix products are usually faster with one BLAS worker per process.
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import numpy as np
 
@@ -142,7 +142,7 @@ def run(train_path, test_path, output_dir, seed, epochs, mini_batch_size,
         full_progress = globalprogress.add_task(
             f"Total progress ({len(jobs)} elements)", total=len(jobs), is_task=False
         )
-        with open(output_dir / "metrics.csv", "w+") as csv_file:
+        with open(output_dir / "metrics.csv", mode="w+") as csv_file:
             writer = None
             while len(jobs) > 0:
                 for job in list(jobs):
@@ -227,7 +227,7 @@ def main():
     parser.add_argument("--test", type=Path, default=ROOT / "data" / "digits_test.csv")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "results" / "ej2_digitos")
     parser.add_argument("--seed", type=int, default=2)
-    parser.add_argument("--epochs", type=int, default=25)
+    parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--mini-batch-size", type=int, default=2048)
     parser.add_argument("--validation-fraction", type=float, default=0.1)
     parser.add_argument("--max-tasks", type=int)
