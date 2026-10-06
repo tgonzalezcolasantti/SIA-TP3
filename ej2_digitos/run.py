@@ -15,18 +15,18 @@ import numpy as np
 from data.digit_dataset_loader import load_dataset
 from models.activation import Tanh
 from models.neural_network import MultiLayerPerceptron
-from models.optimization import Momentum, NoOptimization
+from models.optimization import Momentum, NoOptimization, Optimization
 
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHITECTURES = ((64,), (128, 64))
-LEARNING_RATES = (0.01, 0.05)
-OPTIMIZERS = ("sgd", "momentum")
+LEARNING_RATES = (0.01, 0.05, 0.1, 0.001, 0.0001)
+OPTIMIZERS = ("None", "Momentum", "RMSProp", "Adam")
 
 
 def read_digits(path: Path):
     frame = load_dataset(str(path))
-    images = np.stack(frame["image"].to_numpy()).astype(np.float32)
+    images = np.stack(frame["image"].to_numpy()).astype(np.float32) # type: ignore
     labels = frame["label"].to_numpy(dtype=np.int64)
     if images.ndim != 2 or images.shape[1] != 784:
         raise ValueError(f"{path}: each image must contain 784 pixels")
@@ -56,11 +56,11 @@ def targets(labels):
     return encoded
 
 
-def make_model(topology, learning_rate, optimizer_name, seed):
+def make_model(topology, learning_rate, optimizer_name, seed, output_dir):
     np.random.seed(seed)
-    optimizer = Momentum(0.9) if optimizer_name == "momentum" else NoOptimization()
+    optimizer = Optimization.from_string(optimizer_name)
     return MultiLayerPerceptron(
-        list(topology), Tanh(), learning_rate, optimization=optimizer,
+        list(topology), Tanh(), learning_rate, optimization=optimizer, save=output_dir
     )
 
 
@@ -92,8 +92,8 @@ def evaluate(model, images, labels, tracked_digits=(), chunk_size=2048):
 
 
 def fit_model(training_data, topology, learning_rate, optimizer_name,
-              batch_size, epochs, seed):
-    model = make_model(topology, learning_rate, optimizer_name, seed)
+              batch_size, epochs, seed, output_dir):
+    model = make_model(topology, learning_rate, optimizer_name, seed, output_dir)
     started = time.perf_counter()
     model.train(training_data, epochs=epochs, epsilon=-1,
                 batch_size=batch_size, seed=seed)
@@ -103,9 +103,9 @@ def fit_model(training_data, topology, learning_rate, optimizer_name,
 def run_configuration(training_data, training_images, training_labels,
                       validation_images, validation_labels,
                       topology, learning_rate, optimizer_name, batch_size,
-                      epochs, seed, mode):
+                      epochs, seed, mode, output_dir):
     model, seconds = fit_model(training_data, topology, learning_rate,
-                               optimizer_name, batch_size, epochs, seed)
+                               optimizer_name, batch_size, epochs, seed, output_dir)
     train_metrics = evaluate(model, training_images, training_labels)
     metrics = evaluate(model, validation_images, validation_labels)
     result = {
@@ -189,7 +189,7 @@ def run(train_path, test_path, output_dir, seed, epochs, mini_batch_size,
                 search.append(run_configuration(
                     train_data, train_images, train_labels, val_images, val_labels,
                     topology, rate,
-                    optimizer_name, mini_batch_size, epochs, seed, "mini",
+                    optimizer_name, mini_batch_size, epochs, seed, "mini", output_dir
                 ))
     key = lambda item: (item["validation"]["accuracy"],
                         -item["validation"]["mse"])
@@ -202,7 +202,7 @@ def run(train_path, test_path, output_dir, seed, epochs, mini_batch_size,
             train_data, train_images, train_labels, val_images, val_labels,
             best_mini["topology"],
             best_mini["learning_rate"], best_mini["optimizer"],
-            batch_size, epochs, seed, mode,
+            batch_size, epochs, seed, mode, output_dir
         ))
     selected = max(mode_comparison, key=key)
     experiments = search + mode_comparison[1:]
@@ -211,7 +211,7 @@ def run(train_path, test_path, output_dir, seed, epochs, mini_batch_size,
     final_data = list(zip(images, targets(labels)))
     final_model, _ = fit_model(final_data, selected["topology"],
                                selected["learning_rate"], selected["optimizer"],
-                               selected["batch_size"], epochs, seed)
+                               selected["batch_size"], epochs, seed, output_dir)
     model_path = output_dir / "digit_model.model"
     final_model.save_path = model_path
     final_model.save()

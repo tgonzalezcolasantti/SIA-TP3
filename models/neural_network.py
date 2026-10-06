@@ -53,6 +53,7 @@ class Perceptron:
         self.h = np.zeros(total)
         self.deltas = np.zeros(total)
         self.weight_deltas = np.zeros((total, total))
+        self.gradient = np.zeros(self.weights.shape)
         self.last_layer_count = neuron_topology[-1]
         self.save_path = save
         boundaries = np.cumsum([0, *neuron_topology])
@@ -96,7 +97,7 @@ class Perceptron:
         for layer_idx in range(1, len(self.layer_slices)):
             previous = self.layer_slices[layer_idx - 1]
             current = self.layer_slices[layer_idx]
-            bias = np.diag(self.weights[current, current])[:, None]
+            bias = np.diagonal(self.weights[current, current])[:, None]
             self.h[current] = self.weights[current, previous] @ self.outputs[previous] + bias
             self.outputs[current] = self.activation.excite(self.h[current])
         return self.outputs[self.layer_slices[-1]]
@@ -123,6 +124,7 @@ class Perceptron:
             self.deltas[:] = 0
         self.deltas[output_layer] = output_errors * output_derivatives
 
+        #backpropagation for derivatives
         for layer_idx in range(len(self.layer_slices) - 2, 0, -1):
             current = self.layer_slices[layer_idx]
             following = self.layer_slices[layer_idx + 1]
@@ -134,19 +136,13 @@ class Perceptron:
         for layer_idx in range(1, len(self.layer_slices)):
             previous = self.layer_slices[layer_idx - 1]
             current = self.layer_slices[layer_idx]
-            gradient = self.deltas[current] @ self.outputs[previous].T / batch_count
-            previous_update = self.weight_deltas[current, previous].copy()
-            self.weight_deltas[current, previous] = self.optimization.apply(
-                self.learning_rate, gradient, previous_update,
-            )
-            neurons = np.arange(current.start, current.stop)
-            self.weight_deltas[neurons, neurons] = self.optimization.apply(
-                self.learning_rate,
-                np.mean(self.deltas[current], axis=1),
-                self.weight_deltas[neurons, neurons].copy(),
-            )
-            self.weights[current, previous] += self.weight_deltas[current, previous]
-            self.weights[neurons, neurons] += self.weight_deltas[neurons, neurons]
+            self.gradient[current, previous] = self.deltas[current] @ self.outputs[previous].T / batch_count
+        # gradient = self.deltas @ self.outputs.T / batch_count
+        self.gradient[range(len(self.weights)), range(len(self.weights))] = np.sum(self.deltas, axis=1) / output_errors.shape[1]
+        self.weight_deltas = self.optimization.apply(
+            self.learning_rate, self.gradient, self.weight_deltas
+        )
+        self.weights += self.weight_deltas
 
     def train(
         self: Self,
@@ -169,7 +165,7 @@ class Perceptron:
             raise ValueError("expected output shape does not match the last layer")
         effective_batch_size = len(inputs) if batch_size == -1 else batch_size
         rng = np.random.default_rng(seed)
-        for _ in range(epochs):
+        for _ in range(self.epoch, epochs):
             order = rng.permutation(len(inputs)) if seed is not None else np.arange(len(inputs))
             for start in range(0, len(inputs), effective_batch_size):
                 indices = order[start:start + effective_batch_size]
