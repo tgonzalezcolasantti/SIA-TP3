@@ -5,16 +5,20 @@
 - `models/`: perceptrones y funciones de activación compartidos.
 - `tests/`: validaciones con problemas simples.
 - `ej1_fraude/`: comparación y generalización para fraude.
-- `ej2_digitos/`: clasificación de dígitos.
+- `ej2_digitos/`: estudio de clasificación de dígitos.
 - `ej3_mejora/`: mejora del clasificador con más datos.
 
-Las carpetas de los ejercicios 2 y 3 están preparadas para incorporar sus
-datasets y experimentos.
+El ejercicio 3 está preparado para incorporar sus experimentos.
 
 El [Ejercicio 1](ej1_fraude/README.md) ya incluye la exploración del dataset de
 fraude, la comparación de modelos, el estudio de generalización y el umbral
 recomendado. Con los archivos del enunciado en `data/`, se reproduce con
 `python -m ej1_fraude.run`.
+
+El [Ejercicio 2](ej2_digitos/README.md) compara arquitecturas, tasas de
+aprendizaje y optimizadores usando `digits.csv`. También compara actualizaciones
+online, por mini batch y por lote completo. `digits_test.csv` se utiliza solo
+para la evaluación final. Se reproduce con `uv run python -m ej2_digitos.run`.
 
 ## Experimentos en paralelo
 

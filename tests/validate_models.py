@@ -10,7 +10,7 @@ from models.neural_network import MultiLayerPerceptron, SimplePerceptron
 
 
 def evaluate(model, inputs, targets, classification):
-    predictions = np.array([model.classify(x)[0] for x in inputs])
+    predictions = np.array([model.classify(x).item() for x in inputs])
 
     metrics = {"mse": float(np.mean((predictions - targets) ** 2))}
     if classification:
