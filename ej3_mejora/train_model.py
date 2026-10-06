@@ -83,6 +83,8 @@ def fit_candidate(config, pool, images, labels, validation, seed, output_path, l
         "training": evaluate(model, images[pool], labels[pool], (5, 8)),
         "validation": evaluate(model, images[validation], labels[validation], (5, 8)),
     }
+    result['topology'] = [int(x) for x in result['topology']]
+    print(result)
     print(json.dumps(result), flush=True)
     return result
 
