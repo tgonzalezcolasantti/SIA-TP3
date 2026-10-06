@@ -225,7 +225,7 @@ def run(old_path, new_path, test_path, output_dir, seed=2, epochs=40,
     final_data = make_training_data(images, labels, final_indices,
                                     selected["shifts_per_image"], seed)
     final_model, _ = fit_model(final_data, selected["topology"],
-                               selected["learning_rate"], "momentum",
+                               selected["learning_rate"], "RMSProp",
                                selected["batch_size"], selected["epochs"], seed, output_dir, "final")
 
     # digits_test.csv is opened only after every experiment choice is fixed.
@@ -265,12 +265,12 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=ROOT / "results" / "ej3_mejora")
     parser.add_argument("--seed", type=int, default=2)
     parser.add_argument("--epochs", type=int, default=40)
-    parser.add_argument("--batch-size", type=int, default=512)
+    parser.add_argument("--batch-size", type=int, default=2048)
     parser.add_argument("--balance-count", type=int, default=2000)
     parser.add_argument("--validation-fraction", type=float, default=0.1)
     args = parser.parse_args()
     run(args.old, args.new, args.test, args.output_dir, args.seed, args.epochs,
-        args.batch_size, args.balance_count, args.validation_fraction)
+        args.batch_size, args.balance_count, args.validation_fraction, 4)
 
 
 if __name__ == "__main__":

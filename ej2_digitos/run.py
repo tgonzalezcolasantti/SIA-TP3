@@ -142,15 +142,20 @@ def run(train_path, test_path, output_dir, seed, epochs, mini_batch_size,
         full_progress = globalprogress.add_task(
             f"Total progress ({len(jobs)} elements)", total=len(jobs), is_task=False
         )
-        while len(jobs) > 0:
-            for job in list(jobs):
-                if job.ready():
-                    jobs.remove(job)
-                    row: Dict[str, Any] = job.get()
-                    globalprogress.advance(full_progress)
-                    rows.append(row)
-                    print_row(row)
-
+        with open(output_dir / "metrics.csv", "w+") as csv_file:
+            writer = None
+            while len(jobs) > 0:
+                for job in list(jobs):
+                    if job.ready():
+                        jobs.remove(job)
+                        row: Dict[str, Any] = job.get()
+                        globalprogress.advance(full_progress)
+                        rows.append(row)
+                        print_row(row)
+                        if writer is None:
+                            writer = csv.DictWriter(csv_file, row.keys())
+                            writer.writeheader()
+                        writer.writerow(row)
         key = lambda item: (item["validation"]["accuracy"],
                             -item["validation"]["mse"])
         best_mini = max(rows, key=key)
@@ -223,7 +228,7 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=ROOT / "results" / "ej2_digitos")
     parser.add_argument("--seed", type=int, default=2)
     parser.add_argument("--epochs", type=int, default=25)
-    parser.add_argument("--mini-batch-size", type=int, default=256)
+    parser.add_argument("--mini-batch-size", type=int, default=2048)
     parser.add_argument("--validation-fraction", type=float, default=0.1)
     parser.add_argument("--max-tasks", type=int)
     args = parser.parse_args()

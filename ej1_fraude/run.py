@@ -12,7 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from models.neural_network import SimplePerceptron
-from models.activation import Adaline, Logistic
+from models.activation import Activation, Adaline, Logistic
 
 matplotlib.use("Agg")
 
@@ -84,7 +84,7 @@ def fit_scaler(inputs):
 
 def make_model(kind, features, seed, name, savedir):
     np.random.seed(seed)
-    activation = Adaline() if kind == "linear" else Logistic(BETA)
+    activation = Activation.from_string(kind)
     return SimplePerceptron(
         inputs=features,
         activation=activation,
@@ -122,7 +122,7 @@ def compare_learning(inputs, teacher, seed, savedir):
     means, stds = fit_scaler(inputs)
     scaled = (inputs - means) / stds
     comparison = {}
-    for kind in ("linear", "logistic"):
+    for kind in ("adaline", "logistic"):
         model = make_model(kind, scaled.shape[1], seed, "Compare", savedir)
         history = train(model, scaled, teacher, EPOCHS, CHECKPOINTS, with_history=True)
         predictions = model.classify(scaled).flatten()

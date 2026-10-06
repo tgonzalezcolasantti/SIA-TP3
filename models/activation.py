@@ -16,6 +16,13 @@ class Activation(ABC):
 
     def __str__(self: Self) -> str:
         return self.name
+    
+    @classmethod
+    def from_string(cls: type[Activation], string: str) -> Activation:
+        for subclass in cls.__subclasses__():
+            if subclass.name == string:
+                return subclass()
+        raise ValueError(f"{string} is not a valid activation function name")
 
 class Step(Activation):
     name = "step"
@@ -35,6 +42,16 @@ class Adaline(Activation):
     @override
     def excite(self: Self, value: float | np.ndarray) -> float | np.ndarray:
         return value
+
+    @override
+    def derivative(self: Self, value: float | np.ndarray) -> float | np.ndarray:
+        return np.ones(value.shape) if isinstance(value, np.ndarray) else 1
+
+class ReLU(Activation):
+    name="ReLU"
+    @override
+    def excite(self: Self, value: float | np.ndarray) -> float | np.ndarray:
+        return max(0, value)
 
     @override
     def derivative(self: Self, value: float | np.ndarray) -> float | np.ndarray:
