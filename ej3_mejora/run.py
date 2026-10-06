@@ -75,6 +75,8 @@ def save_comparison(search, path):
 def save_plots(search, test_report, output_dir):
     import matplotlib.pyplot as plt
 
+    search = sorted(search, key=lambda x: x['validation']['accuracy'])
+
     names = [
         f"{'Nuevos' if item['source'] == 'new' else 'Unión'} | "
         f"{'-'.join(map(str, item['topology'][1:-1]))} | "
@@ -265,7 +267,7 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=ROOT / "results" / "ej3_mejora")
     parser.add_argument("--seed", type=int, default=2)
     parser.add_argument("--epochs", type=int, default=40)
-    parser.add_argument("--batch-size", type=int, default=2048)
+    parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--balance-count", type=int, default=2000)
     parser.add_argument("--validation-fraction", type=float, default=0.1)
     args = parser.parse_args()
