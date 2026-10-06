@@ -143,6 +143,8 @@ def run_task(params: Dict, old_path: Path, new_path: Path, output_path: Path, va
                         progress.update(task, completed=gen, refresh=True)
                     elif "{" in line:
                         progress.remove_task(task)
+                        line = line.replace("\'", "\"")
+                        print(line, flush=True)
                         return json.loads(line)
                     time.sleep(0)
 
