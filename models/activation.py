@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-import math
 from typing import Self, override
 
 import numpy as np
