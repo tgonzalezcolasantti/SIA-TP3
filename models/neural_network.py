@@ -52,7 +52,6 @@ class Perceptron:
         self.outputs = np.zeros(total)
         self.h = np.zeros(total)
         self.deltas = np.zeros(total)
-        self.weight_deltas = np.zeros((total, total))
         self.gradient = np.zeros(self.weights.shape)
         self.last_layer_count = neuron_topology[-1]
         self.save_path = save
@@ -139,10 +138,9 @@ class Perceptron:
             self.gradient[current, previous] = self.deltas[current] @ self.outputs[previous].T / batch_count
         # gradient = self.deltas @ self.outputs.T / batch_count
         self.gradient[range(len(self.weights)), range(len(self.weights))] = np.sum(self.deltas, axis=1) / output_errors.shape[1]
-        self.weight_deltas = self.optimization.apply(
-            self.learning_rate, self.gradient, self.weight_deltas
+        self.weights += self.optimization.apply(
+            self.learning_rate, self.gradient
         )
-        self.weights += self.weight_deltas
 
     def train(
         self: Self,
