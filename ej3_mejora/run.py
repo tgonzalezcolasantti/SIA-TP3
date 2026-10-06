@@ -5,11 +5,14 @@ import csv
 import json
 import multiprocessing
 from multiprocessing.pool import ApplyResult, ThreadPool
+import os
 from pathlib import Path
 import subprocess
 import time
 from typing import Any, Dict, List
 
+# Small matrix products are usually faster with one BLAS worker per process.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import numpy as np
 from rich.live import Live
@@ -18,6 +21,7 @@ from rich.table import Table
 
 from ej2_digitos.utils import ROOT, fit_model, read_digits, classification_report
 from ej3_mejora.train_model import training_indices, make_training_data, load_learning_data, stratified_split
+
 
 def configurations(epochs, batch_size, balance_count):
     return [
