@@ -9,12 +9,12 @@ from pathlib import Path
 import matplotlib
 import numpy as np
 
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from models.activation import Adaline, Logistic
 from models.neural_network import SimplePerceptron
+from models.activation import Adaline, Logistic
 
+matplotlib.use("Agg")
 
 TARGET = "big_model_fraud_probability"
 GROUND_TRUTH = "flagged_fraud"

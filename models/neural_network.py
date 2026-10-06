@@ -163,7 +163,8 @@ class Perceptron:
             raise ValueError("expected output shape does not match the last layer")
         effective_batch_size = len(inputs) if batch_size == -1 else batch_size
         rng = np.random.default_rng(seed)
-        for _ in range(self.epoch, epochs):
+        for i in range(self.epoch, epochs):
+            print(f"Epoch {i}", flush=True)
             order = rng.permutation(len(inputs)) if seed is not None else np.arange(len(inputs))
             for start in range(0, len(inputs), effective_batch_size):
                 indices = order[start:start + effective_batch_size]

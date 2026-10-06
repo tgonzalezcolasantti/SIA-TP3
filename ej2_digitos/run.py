@@ -3,121 +3,25 @@
 import argparse
 import csv
 import json
+import multiprocessing
+from multiprocessing.pool import ApplyResult, ThreadPool
 import os
+import subprocess
 import time
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from rich.live import Live
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TaskID, TaskProgressColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
+from rich.table import Table
+
+from ej2_digitos.train_model import fit_model, targets
+from ej2_digitos.utils import ARCHITECTURES, LEARNING_RATES, OPTIMIZERS, ROOT, read_digits
 
 # Small matrix products are usually faster with one BLAS worker per process.
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import numpy as np
-
-from data.digit_dataset_loader import load_dataset
-from models.activation import Tanh
-from models.neural_network import MultiLayerPerceptron
-from models.optimization import Momentum, NoOptimization, Optimization
-
-
-ROOT = Path(__file__).resolve().parents[1]
-ARCHITECTURES = ((64,), (128, 64))
-LEARNING_RATES = (0.01, 0.05, 0.1, 0.001, 0.0001)
-OPTIMIZERS = ("None", "Momentum", "RMSProp", "Adam")
-
-
-def read_digits(path: Path):
-    frame = load_dataset(str(path))
-    images = np.stack(frame["image"].to_numpy()).astype(np.float32) # type: ignore
-    labels = frame["label"].to_numpy(dtype=np.int64)
-    if images.ndim != 2 or images.shape[1] != 784:
-        raise ValueError(f"{path}: each image must contain 784 pixels")
-    if not np.isfinite(images).all() or np.any((labels < 0) | (labels > 9)):
-        raise ValueError(f"{path}: invalid pixels or labels")
-    return images, labels
-
-
-def stratified_split(labels, validation_fraction, seed):
-    if not 0 < validation_fraction < 1:
-        raise ValueError("validation fraction must be between 0 and 1")
-    rng = np.random.default_rng(seed)
-    train, validation = [], []
-    for digit in np.unique(labels):
-        indices = rng.permutation(np.flatnonzero(labels == digit))
-        count = max(1, round(len(indices) * validation_fraction))
-        if count == len(indices):
-            raise ValueError(f"digit {digit} has too few samples to split")
-        validation.extend(indices[:count])
-        train.extend(indices[count:])
-    return np.array(train), np.array(validation)
-
-
-def targets(labels):
-    encoded = np.full((len(labels), 10), -1.0)
-    encoded[np.arange(len(labels)), labels] = 1.0
-    return encoded
-
-
-def make_model(topology, learning_rate, optimizer_name, seed, output_dir):
-    np.random.seed(seed)
-    optimizer = Optimization.from_string(optimizer_name)
-    return MultiLayerPerceptron(
-        list(topology), Tanh(), learning_rate, optimization=optimizer, save=output_dir
-    )
-
-
-def evaluate(model, images, labels, tracked_digits=(), chunk_size=2048):
-    correct, squared_error, output_count = 0, 0.0, 0
-    digit_hits = {digit: 0 for digit in tracked_digits}
-    digit_counts = {digit: int(np.count_nonzero(labels == digit)) for digit in tracked_digits}
-    for start in range(0, len(labels), chunk_size):
-        end = start + chunk_size
-        outputs = model.classify(images[start:end])
-        predictions = outputs.argmax(axis=1)
-        batch_labels = labels[start:end]
-        correct += int(np.count_nonzero(predictions == batch_labels))
-        squared_error += float(np.sum((outputs - targets(batch_labels)) ** 2))
-        output_count += outputs.size
-        for digit in tracked_digits:
-            digit_hits[digit] += int(np.count_nonzero(
-                (predictions == digit) & (batch_labels == digit)
-            ))
-    metrics = {
-        "accuracy": correct / len(labels),
-        "mse": squared_error / output_count,
-    }
-    for digit in tracked_digits:
-        metrics[f"recall_{digit}"] = (
-            digit_hits[digit] / digit_counts[digit] if digit_counts[digit] else None
-        )
-    return metrics
-
-
-def fit_model(training_data, topology, learning_rate, optimizer_name,
-              batch_size, epochs, seed, output_dir):
-    model = make_model(topology, learning_rate, optimizer_name, seed, output_dir)
-    started = time.perf_counter()
-    model.train(training_data, epochs=epochs, epsilon=-1,
-                batch_size=batch_size, seed=seed)
-    return model, time.perf_counter() - started
-
-
-def run_configuration(training_data, training_images, training_labels,
-                      validation_images, validation_labels,
-                      topology, learning_rate, optimizer_name, batch_size,
-                      epochs, seed, mode, output_dir):
-    model, seconds = fit_model(training_data, topology, learning_rate,
-                               optimizer_name, batch_size, epochs, seed, output_dir)
-    train_metrics = evaluate(model, training_images, training_labels)
-    metrics = evaluate(model, validation_images, validation_labels)
-    result = {
-        "mode": mode, "topology": list(topology),
-        "learning_rate": learning_rate, "optimizer": optimizer_name,
-        "batch_size": batch_size, "epochs": epochs,
-        "training": train_metrics, "validation": metrics,
-        "train_seconds": seconds,
-    }
-    print(f"{mode:6} {topology} {optimizer_name:8} lr={learning_rate}: "
-          f"accuracy={metrics['accuracy']:.4f} ({seconds:.1f}s)", flush=True)
-    return result
 
 
 def classification_report(predicted, labels):
@@ -168,53 +72,148 @@ def save_comparison(experiments, path):
                 "train_seconds": item["train_seconds"],
             })
 
+def build_params(train_path, test_path, output_dir, seed, learning_rate, topology, optimizer, mode, epochs, batch_size, val_fraction) -> str:
+    return f"--train {str(train_path)} --test {str(test_path)} --output-dir {str(output_dir)} --seed {seed} --learning-rate {learning_rate:.6g}"+\
+           f" --topology {str(list(topology)).replace(" ", "")} --optimizer {optimizer} --mode {mode} --epochs {epochs} --batch-size {batch_size} --validation-fraction {val_fraction:.6g}"
+
+def run_task(params: str, task: TaskID, progress: Progress) -> Dict[str, Any]:
+    cmd: List[str] = ["uv", "run", "python", "-m", "ej2_digitos.train_model", *params.split()]
+    if progress:
+        progress.start_task(task)
+        progress.update(task, visible=True)
+    gen = 0
+    with subprocess.Popen(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1) as proc:
+        while True:
+            result = proc.poll()
+            if result is not None:
+                break
+            if proc.stdout:
+                while True:
+                    line = proc.stdout.readline()
+                    if not line:
+                        break
+                    if "Epoch" in line and progress is not None:
+                        gen = int(line.split()[1])
+                        progress.update(task, completed=gen, refresh=True)
+                    elif "{" in line:
+                        progress.remove_task(task)
+                        return json.loads(line)
+                    time.sleep(0)
+
+        if progress:
+            progress.remove_task(task)
+        if result != 0:
+            print(f"  ERROR: {params}")
+            if proc.stderr is not None:
+                print(proc.stderr.readlines())
+        return {}
+
+def print_row(row: Dict[str, object]) -> None:
+    print(f"RESULT: {row['mode']:6} {str(row['topology']):20} {row['optimizer']:8} lr={row['learning_rate']}: "
+    f"accuracy={row['validation']['accuracy']:.4f} ({row['train_seconds']:.1f}s)") # type: ignore
+
 
 def run(train_path, test_path, output_dir, seed, epochs, mini_batch_size,
-        validation_fraction):
+        validation_fraction, tasks):
     if epochs < 1 or mini_batch_size < 2:
         raise ValueError("epochs must be positive and mini batch size at least 2")
-    images, labels = read_digits(train_path)
-    train_indices, val_indices = stratified_split(labels, validation_fraction, seed)
-    train_images, train_labels = images[train_indices], labels[train_indices]
-    train_data = list(zip(train_images, targets(train_labels)))
-    val_images, val_labels = images[val_indices], labels[val_indices]
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Compare the required architecture, learning rate, and optimizer variants.
-    search = []
-    for hidden in ARCHITECTURES:
-        for rate in LEARNING_RATES:
-            for optimizer_name in OPTIMIZERS:
-                topology = (784, *hidden, 10)
-                search.append(run_configuration(
-                    train_data, train_images, train_labels, val_images, val_labels,
-                    topology, rate,
-                    optimizer_name, mini_batch_size, epochs, seed, "mini", output_dir
-                ))
-    key = lambda item: (item["validation"]["accuracy"],
-                        -item["validation"]["mse"])
-    best_mini = max(search, key=key)
+    jobs = []
+    taskprogress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        transient=True,
+    )
+    globalprogress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+    )
+    table = Table(box=None)
+    table.add_row(taskprogress)
+    table.add_row(globalprogress)
+    rows = []
+    with (
+        ThreadPool(processes=tasks or int(multiprocessing.cpu_count())) as executor,
+        Live(table, refresh_per_second=10),
+    ):
+        jobs: List[ApplyResult] = []
+        for hidden in ARCHITECTURES:
+            for rate in LEARNING_RATES:
+                for optimizer_name in OPTIMIZERS:
+                    topology = (784, *hidden, 10)
+                    task = taskprogress.add_task(
+                        f"{"mini":6} {topology} {optimizer_name:8} lr={rate}",
+                        start=False,
+                        total=epochs,
+                        visible=False,
+                        is_task=True,
+                    )
+                    params = build_params(train_path, test_path, output_dir, seed, rate, topology, optimizer_name, "mini", epochs, mini_batch_size, validation_fraction)
+                    jobs.append(
+                        executor.apply_async(
+                            run_task, (params, task, taskprogress)
+                        )
+                    )
+        full_progress = globalprogress.add_task(
+            f"Total progress ({len(jobs)} elements)", total=len(jobs), is_task=False
+        )
+        while len(jobs) > 0:
+            for job in list(jobs):
+                if job.ready():
+                    jobs.remove(job)
+                    row: Dict[str, Any] = job.get()
+                    globalprogress.advance(full_progress)
+                    rows.append(row)
+                    print_row(row)
 
-    # Hold the chosen hyperparameters fixed to compare update frequencies.
-    mode_comparison = [best_mini]
-    for mode, batch_size in (("online", 1), ("batch", -1)):
-        mode_comparison.append(run_configuration(
-            train_data, train_images, train_labels, val_images, val_labels,
-            best_mini["topology"],
-            best_mini["learning_rate"], best_mini["optimizer"],
-            batch_size, epochs, seed, mode, output_dir
-        ))
-    selected = max(mode_comparison, key=key)
-    experiments = search + mode_comparison[1:]
+        key = lambda item: (item["validation"]["accuracy"],
+                            -item["validation"]["mse"])
+        best_mini = max(rows, key=key)
 
-    # Refit the selected configuration on every example from digits.csv.
-    final_data = list(zip(images, targets(labels)))
-    final_model, _ = fit_model(final_data, selected["topology"],
-                               selected["learning_rate"], selected["optimizer"],
-                               selected["batch_size"], epochs, seed, output_dir)
-    model_path = output_dir / "digit_model.model"
-    final_model.save_path = model_path
-    final_model.save()
+        # Hold the chosen hyperparameters fixed to compare update frequencies.
+        mode_comparison = [best_mini]
+        for mode, batch_size in (("online", 1), ("batch", -1)):
+            task = taskprogress.add_task(
+                f"{mode:6} {best_mini["topology"]} {best_mini["optimizer"]:8} lr={best_mini["learning_rate"]}",
+                start=False,
+                total=epochs,
+                visible=False,
+                is_task=True,
+            )
+            params = build_params(train_path, test_path, output_dir, seed, best_mini["learning_rate"], best_mini["topology"], best_mini["optimizer"], mode, epochs, batch_size, validation_fraction)
+            jobs.append(
+                executor.apply_async(
+                    run_task, (params, task, taskprogress)
+                )
+            )
+        while len(jobs) > 0:
+            for job in list(jobs):
+                if job.ready():
+                    jobs.remove(job)
+                    row: Dict[str, Any] = job.get()
+                    mode_comparison.append(row)
+                    print_row(row)
+        selected = max(mode_comparison, key=key)
+        experiments = rows + mode_comparison[1:]
+
+    # # Refit the selected configuration on every example from digits.csv.
+        images, labels = read_digits(train_path)
+        final_data = list(zip(images, targets(labels)))
+        final_model, _ = fit_model(final_data, selected["topology"],
+                                selected["learning_rate"], selected["optimizer"],
+                                selected["batch_size"], epochs, seed, output_dir)
+        model_path = output_dir / "digit_model.model"
+        final_model.save_path = model_path
+        final_model.save()
 
     # The test file is first opened after all experiment choices are fixed.
     test_images, test_labels = read_digits(test_path)
@@ -222,10 +221,9 @@ def run(train_path, test_path, output_dir, seed, epochs, mini_batch_size,
     result = {
         "seed": seed, "epochs": epochs, "mini_batch_size": mini_batch_size,
         "validation_fraction": validation_fraction,
-        "train_count": len(train_indices), "validation_count": len(val_indices),
         "learning_count": len(labels), "test_count": len(test_labels),
         "learning_class_counts": np.bincount(labels, minlength=10).tolist(),
-        "search": search, "mode_comparison": mode_comparison,
+        "search": rows, "mode_comparison": mode_comparison,
         "selected": selected,
         "test": classification_report(predictions, test_labels),
         "model_path": str(model_path),
@@ -248,12 +246,13 @@ def main():
     parser.add_argument("--test", type=Path, default=ROOT / "data" / "digits_test.csv")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "results" / "ej2_digitos")
     parser.add_argument("--seed", type=int, default=2)
-    parser.add_argument("--epochs", type=int, default=12)
-    parser.add_argument("--mini-batch-size", type=int, default=128)
-    parser.add_argument("--validation-fraction", type=float, default=0.2)
+    parser.add_argument("--epochs", type=int, default=25)
+    parser.add_argument("--mini-batch-size", type=int, default=256)
+    parser.add_argument("--validation-fraction", type=float, default=0.1)
+    parser.add_argument("--max-tasks", type=int)
     args = parser.parse_args()
     run(args.train, args.test, args.output_dir, args.seed, args.epochs,
-        args.mini_batch_size, args.validation_fraction)
+        args.mini_batch_size, args.validation_fraction, args.max_tasks)
 
 
 if __name__ == "__main__":
