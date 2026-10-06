@@ -126,10 +126,9 @@ class Perceptron:
             current = self.layer_slices[layer_idx]
             following = self.layer_slices[layer_idx + 1]
             derivatives = self.activation.derivative(self.h[current,:])
-            for i in range(output_errors.shape[1]):
-                self.deltas[current, i] = (
-                    self.weights[following, current].T @ self.deltas[following, i].flatten()
-                ) * derivatives
+            self.deltas[current, :] = (
+                self.weights[following, current].T @ self.deltas[following, :]
+            ) * derivatives
 
         for layer_idx in range(1, len(self.layer_slices)):
             previous = self.layer_slices[layer_idx - 1]
@@ -170,12 +169,12 @@ class Perceptron:
                 batch_slices = [slice(0, len(training_data))]
             else:
                 batch_slices = [
-                    slice(i, max(i + batch_size, len(training_data)-1)) for i in range(0, len(training_data), batch_size)
+                    slice(i, max(i + batch_size, len(training_data))) for i in range(0, len(training_data), batch_size)
                 ]
             for batch_slice in batch_slices:
-                if self.outputs.shape != (self.weights.shape[0], inputs.shape[0]):
-                    self.outputs = np.zeros((self.weights.shape[0], inputs.shape[0]))
-                    self.h = np.zeros((self.weights.shape[0], inputs.shape[0]))
+                if self.outputs.shape != (self.weights.shape[0], batch_slice.stop-batch_slice.start):
+                    self.outputs = np.zeros((self.weights.shape[0], batch_slice.stop-batch_slice.start))
+                    self.h = np.zeros((self.weights.shape[0], batch_slice.stop-batch_slice.start))
                 outputs = self._calculate_outputs(inputs[batch_slice])
                 results[batch_slice, :] = outputs.T
                 errors = outputs - expected[batch_slice]
