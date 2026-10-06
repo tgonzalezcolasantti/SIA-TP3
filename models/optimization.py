@@ -78,7 +78,7 @@ class Adam(Optimization):
         self.momentum_mean = self.beta_1 * self.momentum_mean + (1 - self.beta_1) * gradient
         self.momentum_var = self.beta_2 * self.momentum_var + (1 - self.beta_2) * gradient ** 2
         bias_corrected_mean = self.momentum_mean / (1 - self.beta_1 ** self.timestep)
-        bias_corrected_var = self.momentum_mean / (1 - self.beta_2 ** self.timestep)
+        bias_corrected_var = self.momentum_var / (1 - self.beta_2 ** self.timestep)
         return -bias_corrected_mean * learning_rate / np.sqrt(np.abs(bias_corrected_var) + 0.00001)
 
     def __str__(self: Self) -> str:
