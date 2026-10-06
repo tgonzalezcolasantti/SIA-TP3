@@ -153,10 +153,12 @@ def run(train_path, test_path, output_dir, seed, epochs, mini_batch_size,
                         globalprogress.advance(full_progress)
                         rows.append(row)
                         print_row(row)
+                        csv_stuff = {'mode': row['mode'], 'topology': row['topology'], 'learning_rate': row['learning_rate'],
+                                        'optimizer': row['optimizer'], 'training_accuracy': row['training']['accuracy'], 'validation_accuracy': row['validation']['accuracy'] }
                         if writer is None:
-                            writer = csv.DictWriter(csv_file, row.keys())
+                            writer = csv.DictWriter(csv_file, csv_stuff.keys())
                             writer.writeheader()
-                        writer.writerow(row)
+                        writer.writerow(csv_stuff)
         key = lambda item: (item["validation"]["accuracy"],
                             -item["validation"]["mse"])
         best_mini = max(rows, key=key)
