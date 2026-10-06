@@ -8,7 +8,10 @@
 - `ej2_digitos/`: estudio de clasificación de dígitos.
 - `ej3_mejora/`: mejora del clasificador con más datos.
 
-El ejercicio 3 está preparado para incorporar sus experimentos.
+El [Ejercicio 3](ej3_mejora/README.md) combina los datos adicionales con los del
+ejercicio 2, compara técnicas para mejorar el clasificador y alcanza 98,20% de
+accuracy en el test provisto. Se reproduce con
+`uv run python -m ej3_mejora.run`.
 
 El [Ejercicio 1](ej1_fraude/README.md) ya incluye la exploración del dataset de
 fraude, la comparación de modelos, el estudio de generalización y el umbral
