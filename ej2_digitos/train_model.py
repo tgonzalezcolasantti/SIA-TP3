@@ -78,7 +78,6 @@ def main():
     train_images, train_labels = images[train_indices], labels[train_indices]
     train_data = list(zip(train_images, targets(train_labels)))
     val_images, val_labels = images[val_indices], labels[val_indices]
-    args.output_dir.mkdir(parents=True, exist_ok=True)
 
     result = run_configuration(
         train_data,

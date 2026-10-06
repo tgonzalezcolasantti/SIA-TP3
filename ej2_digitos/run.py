@@ -93,6 +93,7 @@ def run(train_path, test_path, output_dir, seed, epochs, mini_batch_size,
         validation_fraction, tasks):
     if epochs < 1 or mini_batch_size < 2:
         raise ValueError("epochs must be positive and mini batch size at least 2")
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Compare the required architecture, learning rate, and optimizer variants.
     jobs = []
