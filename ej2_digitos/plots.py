@@ -74,7 +74,7 @@ def line_graph(output_file: Path, data: Mapping[str, Mapping[str, List[float]]],
         plot_yerr = np.std([i for i in [data[x][str(plot_x[j])] for j in x_order]], axis=1)
         print(plot_x)
         print(plot_y)
-        plt.errorbar(x = plot_x, y = plot_y, yerr=plot_yerr, label=x)
+        plt.errorbar(x = plot_x, y = plot_y, label=x)
 
     plt.xlabel(xlabel, fontweight ='bold', fontsize = 15)
     plt.ylabel(ylabel, fontweight ='bold', fontsize = 15)

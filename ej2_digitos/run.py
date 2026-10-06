@@ -230,7 +230,7 @@ def main():
     parser.add_argument("--test", type=Path, default=ROOT / "data" / "digits_test.csv")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "results" / "ej2_digitos")
     parser.add_argument("--seed", type=int, default=2)
-    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--mini-batch-size", type=int, default=2048)
     parser.add_argument("--validation-fraction", type=float, default=0.1)
     parser.add_argument("--max-tasks", type=int)
