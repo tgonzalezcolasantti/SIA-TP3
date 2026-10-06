@@ -3,98 +3,21 @@
 import argparse
 import csv
 import json
-import os
+import multiprocessing
+from multiprocessing.pool import ApplyResult, ThreadPool
 from pathlib import Path
+import subprocess
+import time
+from typing import Any, Dict, List
 
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-os.environ.setdefault("MPLBACKEND", "Agg")
 
 import numpy as np
-import pandas as pd
+from rich.live import Live
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TaskID, TaskProgressColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
+from rich.table import Table
 
-from ej2_digitos.run import (classification_report, evaluate, fit_model,
-                            read_digits, stratified_split, targets)
-
-
-ROOT = Path(__file__).resolve().parents[1]
-MINORITY_DIGITS = (5, 8)
-SHIFTS = ((-1, -1), (-1, 0), (-1, 1), (0, -1),
-          (0, 1), (1, -1), (1, 0), (1, 1))
-
-
-def load_learning_data(old_path: Path, new_path: Path):
-    """Keep each labelled image once, preferring the new file on overlap."""
-    old = pd.read_csv(old_path)
-    new = pd.read_csv(new_path)
-    if set(old.columns) != {"label", "image"} or set(new.columns) != {"label", "image"}:
-        raise ValueError("digit files must contain label and image columns")
-    old["from_new"] = False
-    new["from_new"] = True
-    combined = pd.concat((new, old), ignore_index=True)
-    combined = combined.drop_duplicates(subset=["label", "image"])
-    images = np.stack([
-        np.fromstring(value[1:-1], dtype=np.float32, sep=",")
-        for value in combined["image"]
-    ])
-    labels = combined["label"].to_numpy(dtype=np.int64)
-    if images.shape != (len(labels), 784) or not np.isfinite(images).all():
-        raise ValueError("each image must contain 784 finite pixels")
-    if np.any((labels < 0) | (labels > 9)):
-        raise ValueError("digit labels must be between 0 and 9")
-    from_new = combined["from_new"].to_numpy(dtype=bool)
-    return images, labels, from_new, {
-        "old_rows": len(old), "new_rows": len(new),
-        "shared_rows": len(old) + len(new) - len(combined),
-        "unique_rows": len(combined),
-        "old_class_counts": np.bincount(old["label"], minlength=10).tolist(),
-        "new_class_counts": np.bincount(new["label"], minlength=10).tolist(),
-        "combined_class_counts": np.bincount(labels, minlength=10).tolist(),
-    }
-
-
-def training_indices(pool, labels, balance_count, seed):
-    """Resample minority examples only inside the training partition."""
-    if balance_count == 0:
-        return pool.copy()
-    rng = np.random.default_rng(seed)
-    pieces = [pool]
-    for digit in MINORITY_DIGITS:
-        members = pool[labels[pool] == digit]
-        if len(members) == 0:
-            raise ValueError(f"no examples of digit {digit} in training")
-        if len(members) < balance_count:
-            pieces.append(rng.choice(members, balance_count - len(members), replace=True))
-    return np.concatenate(pieces)
-
-
-def shift_images(images, shifts_per_image, seed):
-    """Append small translated copies; labels remain aligned with each block."""
-    if shifts_per_image == 0:
-        return images
-    rng = np.random.default_rng(seed)
-    original = images.reshape(-1, 28, 28)
-    copies = [images]
-    for _ in range(shifts_per_image):
-        shifted = np.zeros_like(original)
-        choices = rng.integers(len(SHIFTS), size=len(images))
-        for choice, (dy, dx) in enumerate(SHIFTS):
-            members = np.flatnonzero(choices == choice)
-            if len(members) == 0:
-                continue
-            source_y = slice(max(0, -dy), min(28, 28 - dy))
-            source_x = slice(max(0, -dx), min(28, 28 - dx))
-            target_y = slice(max(0, dy), min(28, 28 + dy))
-            target_x = slice(max(0, dx), min(28, 28 + dx))
-            shifted[members, target_y, target_x] = original[members, source_y, source_x]
-        copies.append(shifted.reshape(-1, 784))
-    return np.concatenate(copies)
-
-
-def make_training_data(images, labels, indices, shifts_per_image, seed):
-    selected_images = shift_images(images[indices], shifts_per_image, seed)
-    selected_labels = np.tile(labels[indices], shifts_per_image + 1)
-    return list(zip(selected_images, targets(selected_labels)))
-
+from ej2_digitos.utils import ROOT, fit_model, read_digits, classification_report
+from ej3_mejora.train_model import training_indices, make_training_data, load_learning_data, stratified_split
 
 def configurations(epochs, batch_size, balance_count):
     return [
@@ -115,27 +38,6 @@ def configurations(epochs, batch_size, balance_count):
         {"source": "combined", "topology": [784, 256, 128, 10], "learning_rate": 0.02,
          "balance_count": balance_count, "shifts_per_image": 2, "epochs": epochs, "batch_size": batch_size},
     ]
-
-
-def fit_candidate(config, pool, images, labels, validation, seed):
-    train_indices = training_indices(pool, labels, config["balance_count"], seed)
-    training_data = make_training_data(images, labels, train_indices,
-                                       config["shifts_per_image"], seed)
-    model, seconds = fit_model(training_data, config["topology"],
-                               config["learning_rate"], "momentum",
-                               config["batch_size"], config["epochs"], seed)
-    result = {
-        **config, "optimizer": "momentum", "train_unique_count": len(pool),
-        "train_draw_count": len(train_indices),
-        "train_augmented_count": len(training_data), "train_seconds": seconds,
-        "training": evaluate(model, images[pool], labels[pool], (5, 8)),
-        "validation": evaluate(model, images[validation], labels[validation], (5, 8)),
-    }
-    print(f"{config['source']:8} {config['topology']} lr={config['learning_rate']} "
-          f"balance={config['balance_count']} shifts={config['shifts_per_image']}: validation="
-          f"{result['validation']['accuracy']:.2%}, "
-          f"recall 8={result['validation']['recall_8']:.2%} ({seconds:.1f}s)", flush=True)
-    return result
 
 
 def save_comparison(search, path):
@@ -210,9 +112,50 @@ def save_plots(search, test_report, output_dir):
     fig.savefig(output_dir / "test_confusion.png", dpi=150)
     plt.close(fig)
 
+def print_row(result: Dict[str, Any]):
+    print(f"{result['source']:8} {result['topology']} lr={result['learning_rate']} "
+          f"balance={result['balance_count']} shifts={result['shifts_per_image']}: validation="
+          f"{result['validation']['accuracy']:.2%}, "
+          f"recall 8={result['validation']['recall_8']:.2%} ({result['train_seconds']:.1f}s)", flush=True)
+
+def run_task(params: Dict, old_path: Path, new_path: Path, output_path: Path, validation_fraction: float, seed: int, i: int, task: TaskID, progress: Progress) -> Dict[str, Any]:
+    cmd: List[str] = ["uv", "run", "python", "-m", "ej3_mejora.train_model", "--old-path", str(old_path), "--new-path", str(new_path), 
+                      "--validation-fraction", f"{validation_fraction:.6g}", "--seed", str(seed), "--source", params['source'],
+                      "--topology", str(params['topology']).replace(" ", ""), "--learning-rate", str(params['learning_rate']),
+                      "--balance-count", str(params['balance_count']), "--shifts-per-image", str(params['shifts_per_image']),
+                      "--epochs", str(params['epochs']), "--batch-size", str(params['batch_size']), "--output-path", str(output_path), "--label", str(i)]
+    if progress:
+        progress.start_task(task)
+        progress.update(task, visible=True)
+    gen = 0
+    with subprocess.Popen(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1) as proc:
+        while True:
+            result = proc.poll()
+            if result is not None:
+                break
+            if proc.stdout:
+                while True:
+                    line = proc.stdout.readline()
+                    if not line:
+                        break
+                    if "Epoch" in line and progress is not None:
+                        gen = int(line.split()[1])
+                        progress.update(task, completed=gen, refresh=True)
+                    elif "{" in line:
+                        progress.remove_task(task)
+                        return json.loads(line)
+                    time.sleep(0)
+
+        if progress:
+            progress.remove_task(task)
+        if result != 0:
+            print(f"  ERROR: {params}", flush=True)
+            if proc.stderr is not None:
+                print(proc.stderr.readlines(), flush=True)
+        return {}
 
 def run(old_path, new_path, test_path, output_dir, seed=2, epochs=40,
-        batch_size=128, balance_count=2000, validation_fraction=0.2):
+        batch_size=128, balance_count=2000, validation_fraction=0.2, tasks = None):
     if epochs < 1 or batch_size < 1 or balance_count < 0:
         raise ValueError("epochs and batch size must be positive; balance count nonnegative")
     images, labels, from_new, profile = load_learning_data(old_path, new_path)
@@ -220,10 +163,56 @@ def run(old_path, new_path, test_path, output_dir, seed=2, epochs=40,
     new_train = train[from_new[train]]
     pools = {"new": new_train, "combined": train}
     output_dir.mkdir(parents=True, exist_ok=True)
+    taskprogress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        transient=True,
+    )
+    globalprogress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+    )
+    table = Table(box=None)
+    table.add_row(taskprogress)
+    table.add_row(globalprogress)
     search = []
-    for config in configurations(epochs, batch_size, balance_count):
-        search.append(fit_candidate(config, pools[config["source"]], images,
-                                    labels, validation, seed))
+    with (
+        ThreadPool(processes=tasks or int(multiprocessing.cpu_count())) as executor,
+        Live(table, refresh_per_second=10),
+    ):
+        jobs: List[ApplyResult] = []
+        for i, config in enumerate(configurations(epochs, batch_size, balance_count)):
+            task = taskprogress.add_task(
+                str(config),
+                start=False,
+                total=epochs,
+                visible=False,
+                is_task=True,
+            )
+            jobs.append(
+                executor.apply_async(
+                    run_task, (config, old_path, new_path, output_dir, validation_fraction, seed, i, task, taskprogress)
+                )
+            )
+        full_progress = globalprogress.add_task(
+            f"Total progress ({len(jobs)} elements)", total=len(jobs), is_task=False
+        )
+        while len(jobs) > 0:
+            for job in list(jobs):
+                if job.ready():
+                    jobs.remove(job)
+                    row: Dict[str, Any] = job.get()
+                    globalprogress.advance(full_progress)
+                    search.append(row)
+                    print_row(row)
     selected = max(search, key=lambda result: (
         result["validation"]["accuracy"], -result["validation"]["mse"]
     ))
@@ -235,10 +224,7 @@ def run(old_path, new_path, test_path, output_dir, seed=2, epochs=40,
                                     selected["shifts_per_image"], seed)
     final_model, _ = fit_model(final_data, selected["topology"],
                                selected["learning_rate"], "momentum",
-                               selected["batch_size"], selected["epochs"], seed)
-    model_path = output_dir / "digit_model.model"
-    final_model.save_path = model_path
-    final_model.save()
+                               selected["batch_size"], selected["epochs"], seed, output_dir, "final")
 
     # digits_test.csv is opened only after every experiment choice is fixed.
     test_images, test_labels = read_digits(test_path)
@@ -256,7 +242,6 @@ def run(old_path, new_path, test_path, output_dir, seed=2, epochs=40,
         "final_augmented_count": len(final_data),
         "test_count": len(test_labels), "test": test_report,
         "target_accuracy": 0.98, "target_reached": test_report["accuracy"] >= 0.98,
-        "model_path": str(model_path),
     }
     (output_dir / "results.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     save_comparison(search, output_dir / "comparison.csv")
@@ -278,9 +263,9 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=ROOT / "results" / "ej3_mejora")
     parser.add_argument("--seed", type=int, default=2)
     parser.add_argument("--epochs", type=int, default=40)
-    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--balance-count", type=int, default=2000)
-    parser.add_argument("--validation-fraction", type=float, default=0.2)
+    parser.add_argument("--validation-fraction", type=float, default=0.1)
     args = parser.parse_args()
     run(args.old, args.new, args.test, args.output_dir, args.seed, args.epochs,
         args.batch_size, args.balance_count, args.validation_fraction)

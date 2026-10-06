@@ -9,44 +9,20 @@ import os
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from rich.live import Live
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TaskID, TaskProgressColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.table import Table
 
 from ej2_digitos.train_model import fit_model, targets
-from ej2_digitos.utils import ARCHITECTURES, LEARNING_RATES, OPTIMIZERS, ROOT, read_digits
+from ej2_digitos.utils import ARCHITECTURES, LEARNING_RATES, OPTIMIZERS, ROOT, classification_report, read_digits
 
 # Small matrix products are usually faster with one BLAS worker per process.
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import numpy as np
 
-
-def classification_report(predicted, labels):
-    confusion = np.zeros((10, 10), dtype=int)
-    np.add.at(confusion, (labels, predicted), 1)
-    per_digit, f1_values = {}, []
-    for digit in range(10):
-        tp = confusion[digit, digit]
-        actual = confusion[digit].sum()
-        positive = confusion[:, digit].sum()
-        f1 = float(2 * tp / (actual + positive)) if actual + positive else None
-        if f1 is not None:
-            f1_values.append(f1)
-        per_digit[str(digit)] = {
-            "support": int(actual),
-            "precision": float(tp / positive) if positive else 0.0,
-            "recall": float(tp / actual) if actual else None,
-            "f1": f1,
-        }
-    return {
-        "accuracy": float(np.mean(predicted == labels)),
-        "macro_f1": float(np.mean(f1_values)),
-        "per_digit": per_digit,
-        "confusion_matrix": confusion.tolist(),
-    }
 
 
 def save_comparison(experiments, path):
@@ -210,7 +186,7 @@ def run(train_path, test_path, output_dir, seed, epochs, mini_batch_size,
         final_data = list(zip(images, targets(labels)))
         final_model, _ = fit_model(final_data, selected["topology"],
                                 selected["learning_rate"], selected["optimizer"],
-                                selected["batch_size"], epochs, seed, output_dir)
+                                selected["batch_size"], epochs, seed, output_dir, label="final")
         model_path = output_dir / "digit_model.model"
         final_model.save_path = model_path
         final_model.save()

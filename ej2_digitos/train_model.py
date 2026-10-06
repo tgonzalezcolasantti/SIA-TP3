@@ -5,72 +5,10 @@ import time
 
 import numpy as np
 
-from ej2_digitos.utils import ROOT, read_digits, stratified_split
+from ej2_digitos.utils import ROOT, evaluate, fit_model, read_digits, stratified_split, targets
 from models.activation import Tanh
 from models.neural_network import MultiLayerPerceptron
 from models.optimization import Optimization
-
-
-def targets(labels):
-    encoded = np.full((len(labels), 10), -1.0)
-    encoded[np.arange(len(labels)), labels] = 1.0
-    return encoded
-
-
-def evaluate(model, images, labels, tracked_digits=(), chunk_size=2048):
-    correct, squared_error, output_count = 0, 0.0, 0
-    digit_hits = {digit: 0 for digit in tracked_digits}
-    digit_counts = {
-        digit: int(np.count_nonzero(labels == digit)) for digit in tracked_digits
-    }
-    for start in range(0, len(labels), chunk_size):
-        end = start + chunk_size
-        outputs = model.classify(images[start:end])
-        predictions = outputs.argmax(axis=1)
-        batch_labels = labels[start:end]
-        correct += int(np.count_nonzero(predictions == batch_labels))
-        squared_error += float(np.sum((outputs - targets(batch_labels)) ** 2))
-        output_count += outputs.size
-        for digit in tracked_digits:
-            digit_hits[digit] += int(
-                np.count_nonzero((predictions == digit) & (batch_labels == digit))
-            )
-    metrics = {
-        "accuracy": correct / len(labels),
-        "mse": squared_error / output_count,
-    }
-    for digit in tracked_digits:
-        metrics[f"recall_{digit}"] = (
-            digit_hits[digit] / digit_counts[digit] if digit_counts[digit] else None
-        )
-    return metrics
-
-
-def make_model(topology, learning_rate, optimizer_name, seed, output_dir, label):
-    np.random.seed(seed)
-    optimizer = Optimization.from_string(optimizer_name)
-    return MultiLayerPerceptron(
-        list(topology), Tanh(), learning_rate, optimization=optimizer, save=output_dir, model_name=label
-    )
-
-
-def fit_model(
-    training_data,
-    topology,
-    learning_rate,
-    optimizer_name,
-    batch_size,
-    epochs,
-    seed,
-    output_dir,
-    label
-):
-    model = make_model(topology, learning_rate, optimizer_name, seed, output_dir, label)
-    started = time.perf_counter()
-    model.train(
-        training_data, epochs=epochs, epsilon=-1, batch_size=batch_size, seed=seed
-    )
-    return model, time.perf_counter() - started
 
 
 def run_configuration(
